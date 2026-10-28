@@ -1,0 +1,276 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  PARTNER
+}
+
+enum BatchStatus {
+  OPEN
+  CLOSED
+}
+
+enum PricingMode {
+  PER_FINE_GRAM
+  PER_GROSS_GRAM
+}
+
+enum PurchaseType {
+  ACCOUNTING
+  FORMAL
+}
+
+enum FormalizerStatus {
+  AVAILABLE
+  USED
+}
+
+enum CapitalMovementType {
+  PURCHASE_PAYMENT
+  BATCH_SALE_INCOME
+  CAPITAL_INJECTION
+  CAPITAL_WITHDRAWAL
+  MANUAL_ADJUSTMENT
+}
+
+enum ExpenseCategory {
+  FOUR_PER_THOUSAND
+  OPERATIONAL
+  TRANSPORT
+  MELTING_LAB
+  COMMISSION
+  OTHER
+}
+
+model User {
+  id                 String       @id @default(uuid())
+  email              String       @unique
+  name               String
+  password           String
+  role               Role         @default(PARTNER)
+  profitSharePercent Decimal      @default(50.00) @db.Decimal(5, 2)
+  isActive           Boolean      @default(true)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  purchases          Purchase[]
+  sales              Sale[]
+  expenses           Expense[]
+  batchesCreated     Batch[]      @relation("BatchCreator")
+
+  @@map("users")
+}
+
+model Batch {
+  id                 String       @id @default(uuid())
+  code               String       @unique
+  name               String
+  description        String?
+  status             BatchStatus  @default(OPEN)
+
+  // Consolidaciones automáticas del lote
+  totalGrossGrams    Decimal      @default(0.0000) @db.Decimal(12, 4)
+  totalFineGrams     Decimal      @default(0.0000) @db.Decimal(12, 4)
+  totalInvestment    Decimal      @default(0.00) @db.Decimal(14, 2)
+
+  // Métricas derivadas / Liquidación
+  averageCostPerFineGram Decimal  @default(0.00) @db.Decimal(14, 2)
+  totalSales         Decimal      @default(0.00) @db.Decimal(14, 2)
+  totalExpenses      Decimal      @default(0.00) @db.Decimal(14, 2)
+  netProfit          Decimal      @default(0.00) @db.Decimal(14, 2)
+  closedAt           DateTime?
+
+  // Datos de venta y formalización
+  formalizerCount             Int?
+  formalizationCostPerPerson  Decimal?     @default(170000.00) @db.Decimal(14, 2)
+  formalizationTotalCost      Decimal?     @default(0.00) @db.Decimal(14, 2)
+  fourPerThousandAmount       Decimal?     @default(0.00) @db.Decimal(14, 2)
+  otherExpensesAmount         Decimal?     @default(0.00) @db.Decimal(14, 2)
+  otherExpensesConcept        String?
+  grossSaleAmount             Decimal?     @default(0.00) @db.Decimal(14, 2)
+  netSaleAmount               Decimal?     @default(0.00) @db.Decimal(14, 2)
+  salePricePerGram            Decimal?     @db.Decimal(14, 2)
+  soldAt                      DateTime?
+
+  createdById        String?
+  createdBy          User?        @relation("BatchCreator", fields: [createdById], references: [id])
+
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  purchases          Purchase[]
+  sales              Sale[]
+  expenses           Expense[]
+  settlements        Settlement[]
+  formalizers        Formalizer[]
+
+  @@map("batches")
+}
+
+model Purchase {
+  id           String       @id @default(uuid())
+  type         PurchaseType @default(ACCOUNTING)
+  consecutive  String?      @unique
+
+  // Datos del Barequero / Proveedor
+  supplier     String?
+  vendorDoc    String?
+  vendorAddress String?
+  vendorPhone  String?
+  vendorCity   String?
+  vendorCountry String?     @default("Colombia")
+
+  // Datos del Receptor (Snapshot en la transacción)
+  recipientName    String?
+  recipientDoc     String?
+  recipientAddress String?
+
+  description  String?
+
+  grossGrams   Decimal      @db.Decimal(12, 4)
+  purity       Decimal?     @db.Decimal(5, 4)
+  purityRaw    Int?         // Ej. 750 para facilitar referencia
+  fineGrams    Decimal      @db.Decimal(12, 4)
+  pricePerGram Decimal      @db.Decimal(14, 2)
+  pricingMode  PricingMode  @default(PER_FINE_GRAM)
+  totalCost    Decimal      @db.Decimal(14, 2)
+
+  purchaseDate DateTime     @default(now())
+  deliveryDate DateTime?    @default(now())
+
+  batchId      String?
+  batch        Batch?       @relation(fields: [batchId], references: [id], onDelete: SetNull)
+
+  createdById  String?
+  createdBy    User?        @relation(fields: [createdById], references: [id])
+
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@map("purchases")
+}
+
+model SystemSetting {
+  id                  String   @id @default("company_profile")
+  legalName           String   @default("DANIEL CAMILO HERRERA RENTERIA")
+  document            String   @default("1.078.000.069")
+  address             String   @default("CR 8 CL 30 8 07")
+  phone               String?  @default("")
+  city                String?  @default("Quibdó")
+  country             String?  @default("Colombia")
+  consecutivePrefix   String   @default("DH-")
+  lastConsecutiveNum  Int      @default(0)
+  lastPurchaseNum     Int      @default(0)
+  currentCapital      Decimal  @default(0.00) @db.Decimal(14, 2)
+  updatedAt           DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+model Formalizer {
+  id            String           @id @default(uuid())
+  name          String
+  document      String           @unique
+  address       String
+  phone         String?
+  city          String           @default("Quibdó-Chocó")
+  country       String           @default("Colombia")
+  status        FormalizerStatus @default(AVAILABLE)
+
+  usedInBatchId String?
+  usedInBatch   Batch?           @relation(fields: [usedInBatchId], references: [id], onDelete: SetNull)
+  usedAt        DateTime?
+
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@map("formalizers")
+}
+
+model CapitalMovement {
+  id            String              @id @default(uuid())
+  type          CapitalMovementType
+  amount        Decimal             @db.Decimal(14, 2)
+  balanceBefore Decimal             @db.Decimal(14, 2)
+  balanceAfter  Decimal             @db.Decimal(14, 2)
+  description   String
+  referenceId   String?
+  createdAt     DateTime            @default(now())
+
+  @@map("capital_movements")
+}
+
+model Sale {
+  id           String       @id @default(uuid())
+  customer     String?
+  description  String?
+
+  grossGrams   Decimal?     @db.Decimal(12, 4)
+  fineGrams    Decimal?     @db.Decimal(12, 4)
+  pricePerGram Decimal?     @db.Decimal(14, 2)
+  totalAmount  Decimal      @db.Decimal(14, 2)
+
+  saleDate     DateTime     @default(now())
+
+  batchId      String?
+  batch        Batch?       @relation(fields: [batchId], references: [id], onDelete: SetNull)
+
+  createdById  String?
+  createdBy    User?        @relation(fields: [createdById], references: [id])
+
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@map("sales")
+}
+
+model Expense {
+  id           String          @id @default(uuid())
+  description  String
+  category     ExpenseCategory @default(OPERATIONAL)
+  amount       Decimal         @db.Decimal(14, 2)
+  expenseDate  DateTime        @default(now())
+
+  batchId      String?
+  batch        Batch?          @relation(fields: [batchId], references: [id], onDelete: SetNull)
+
+  createdById  String?
+  createdBy    User?           @relation(fields: [createdById], references: [id])
+
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@map("expenses")
+}
+
+model Settlement {
+  id             String       @id @default(uuid())
+  batchId        String
+  batch          Batch        @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  totalSales     Decimal      @db.Decimal(14, 2)
+  totalCost      Decimal      @db.Decimal(14, 2)
+  totalExpenses  Decimal      @db.Decimal(14, 2)
+  netProfit      Decimal      @db.Decimal(14, 2)
+
+  // Desglose por socio
+  clientProfit   Decimal      @db.Decimal(14, 2)
+  partnerProfit  Decimal      @db.Decimal(14, 2)
+  clientPercent  Decimal      @db.Decimal(5, 2)
+  partnerPercent Decimal      @db.Decimal(5, 2)
+
+  settlementDate DateTime     @default(now())
+  notes          String?
+
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@map("settlements")
+}

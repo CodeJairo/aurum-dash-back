@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: aurum-dash-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: aurum
+      POSTGRES_PASSWORD: aurum_password
+      POSTGRES_DB: aurum_dash
+    ports:
+      - "5432:5432"
+    volumes:
+      - aurum_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aurum -d aurum_dash"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  aurum_pgdata:
+    driver: local
