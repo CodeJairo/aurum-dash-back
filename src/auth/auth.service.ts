@@ -16,9 +16,18 @@ export class AuthService {
   ) {}
 
   async login(dto: LoginDto) {
-    const email = dto.email.trim().toLowerCase();
-    const user = await this.prisma.user.findUnique({
-      where: { email },
+    const identifier = (dto.username || dto.email || '').trim().toLowerCase();
+    if (!identifier) {
+      throw new UnauthorizedException('Debes ingresar tu usuario o correo electrónico.');
+    }
+
+    const user = await this.prisma.user.findFirst({
+      where: {
+        OR: [
+          { username: identifier },
+          { email: identifier },
+        ],
+      },
     });
 
     if (!user || !user.isActive) {
@@ -36,6 +45,7 @@ export class AuthService {
 
     const payload = {
       sub: user.id,
+      username: user.username,
       email: user.email,
       name: user.name,
       role: user.role,
@@ -47,6 +57,7 @@ export class AuthService {
       accessToken,
       user: {
         id: user.id,
+        username: user.username,
         email: user.email,
         name: user.name,
         role: user.role,

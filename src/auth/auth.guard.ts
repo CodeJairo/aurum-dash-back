@@ -13,14 +13,19 @@ export class AuthGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
     const authHeader = request.headers.authorization;
+    let token: string | undefined;
 
-    if (!authHeader) {
-      throw new UnauthorizedException('Token de autorización no provisto.');
+    if (authHeader) {
+      const [type, headerToken] = authHeader.split(' ');
+      if (type === 'Bearer' && headerToken) {
+        token = headerToken;
+      }
+    } else if (request.query && request.query.token) {
+      token = request.query.token as string;
     }
 
-    const [type, token] = authHeader.split(' ');
-    if (type !== 'Bearer' || !token) {
-      throw new UnauthorizedException('Formato de token inválido.');
+    if (!token) {
+      throw new UnauthorizedException('Token de autorización no provisto.');
     }
 
     try {
