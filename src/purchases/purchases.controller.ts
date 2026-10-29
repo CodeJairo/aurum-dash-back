@@ -13,7 +13,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import 'multer';
+import type {} from 'multer';
 import type { Response } from 'express';
 import { Role } from '@prisma/client';
 import { PurchasesService } from './purchases.service';

@@ -21,7 +21,7 @@ import { AuthGuard } from '../auth/auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { FileInterceptor } from '@nestjs/platform-express';
-import 'multer';
+import type {} from 'multer';
 import * as path from 'path';
 import type { Request, Response } from 'express';
 

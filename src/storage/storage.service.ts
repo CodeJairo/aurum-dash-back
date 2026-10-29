@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import 'multer';
+import type {} from 'multer';
 import {
   S3Client,
   PutObjectCommand,
