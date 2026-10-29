@@ -4,47 +4,84 @@ import * as bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('Inicializando cuentas de socios administradores...');
+  console.log('Inicializando cuentas de usuarios (Daniel y Andrés)...');
 
-  const defaultHashedPassword = bcrypt.hashSync('password123', 10);
+  const danielPass = process.env.DANIEL_PASSWORD || 'password123';
+  const andresPass = process.env.ANDRES_PASSWORD || 'password123';
 
-  // Socio 1 (Administrador)
-  const socio1 = await prisma.user.upsert({
-    where: { email: 'socio1@aurumdash.com' },
+  const danielHashedPassword = bcrypt.hashSync(danielPass, 10);
+  const andresHashedPassword = bcrypt.hashSync(andresPass, 10);
+
+  // 1. Daniel - Administrador con Control Total
+  const daniel = await prisma.user.upsert({
+    where: { email: 'daniel@aurumdash.com' },
     update: {
-      name: 'Socio 1',
-      password: defaultHashedPassword,
+      username: 'daniel',
+      name: 'Daniel',
+      password: danielHashedPassword,
       role: Role.ADMIN,
       profitSharePercent: 50.0,
+      isActive: true,
     },
     create: {
-      email: 'socio1@aurumdash.com',
-      name: 'Socio 1',
-      password: defaultHashedPassword,
+      username: 'daniel',
+      email: 'daniel@aurumdash.com',
+      name: 'Daniel',
+      password: danielHashedPassword,
       role: Role.ADMIN,
       profitSharePercent: 50.0,
+      isActive: true,
     },
   });
 
-  // Socio 2 (Administrador con la misma autoridad)
-  const socio2 = await prisma.user.upsert({
-    where: { email: 'socio2@aurumdash.com' },
+  // 2. Andrés - Auditor / Socio Administrador
+  const andres = await prisma.user.upsert({
+    where: { email: 'andres@aurumdash.com' },
     update: {
-      name: 'Socio 2',
-      password: defaultHashedPassword,
-      role: Role.ADMIN,
+      username: 'andres',
+      name: 'Andres',
+      password: andresHashedPassword,
+      role: Role.VIEWER,
       profitSharePercent: 50.0,
+      isActive: true,
     },
     create: {
-      email: 'socio2@aurumdash.com',
-      name: 'Socio 2',
-      password: defaultHashedPassword,
-      role: Role.ADMIN,
+      username: 'andres',
+      email: 'andres@aurumdash.com',
+      name: 'Andres',
+      password: andresHashedPassword,
+      role: Role.VIEWER,
       profitSharePercent: 50.0,
+      isActive: true,
     },
   });
 
-  console.log(`Cuentas de socios creadas y aseguradas: ${socio1.name} y ${socio2.name}`);
+  // 3. Ajustes Institucionales (Atlas Capital)
+  await prisma.systemSetting.upsert({
+    where: { id: 'company_profile' },
+    update: {
+      legalName: 'DANIEL CAMILO HERRERA RENTERIA',
+      document: '1.078.000.069',
+      address: 'CR 8 CL 30 8 07',
+      city: 'Quibdó',
+      country: 'Colombia',
+      consecutivePrefix: 'DH-',
+    },
+    create: {
+      id: 'company_profile',
+      legalName: 'DANIEL CAMILO HERRERA RENTERIA',
+      document: '1.078.000.069',
+      address: 'CR 8 CL 30 8 07',
+      city: 'Quibdó',
+      country: 'Colombia',
+      consecutivePrefix: 'DH-',
+      currentCapital: 0,
+    },
+  });
+
+  console.log(`✓ Cuenta de Daniel asegurada: ${daniel.username} (${daniel.email}) [ADMIN]`);
+  console.log(`✓ Cuenta de Andrés asegurada: ${andres.username} (${andres.email}) [VIEWER]`);
+  console.log('✓ Ajustes institucionales asegurados');
 }
 
 main()

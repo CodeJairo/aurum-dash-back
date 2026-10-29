@@ -9,6 +9,7 @@ datasource db {
 
 enum Role {
   ADMIN
+  VIEWER
   PARTNER
 }
 
@@ -51,6 +52,7 @@ enum ExpenseCategory {
 
 model User {
   id                 String       @id @default(uuid())
+  username           String?      @unique
   email              String       @unique
   name               String
   password           String
@@ -105,7 +107,8 @@ model Batch {
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
 
-  purchases          Purchase[]
+  purchases          Purchase[]   @relation("BatchPurchases")
+  formalizedPurchases Purchase[]  @relation("BatchFormalizations")
   sales              Sale[]
   expenses           Expense[]
   settlements        Settlement[]
@@ -145,8 +148,18 @@ model Purchase {
   purchaseDate DateTime     @default(now())
   deliveryDate DateTime?    @default(now())
 
-  batchId      String?
-  batch        Batch?       @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  batchId           String?
+  batch             Batch?       @relation("BatchPurchases", fields: [batchId], references: [id], onDelete: SetNull)
+
+  formalizedBatchId String?
+  formalizedBatch   Batch?       @relation("BatchFormalizations", fields: [formalizedBatchId], references: [id], onDelete: SetNull)
+
+  // Soporte de Recepción Firmada
+  isSigned          Boolean   @default(false)
+  signedReceiptUrl  String?
+  signedReceiptKey  String?
+  signedReceiptName String?
+  signedAt          DateTime?
 
   createdById  String?
   createdBy    User?        @relation(fields: [createdById], references: [id])
@@ -188,10 +201,27 @@ model Formalizer {
   usedInBatch   Batch?           @relation(fields: [usedInBatchId], references: [id], onDelete: SetNull)
   usedAt        DateTime?
 
+  documents     BarequeroDocument[]
+
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
 
   @@map("formalizers")
+}
+
+model BarequeroDocument {
+  id           String     @id @default(uuid())
+  formalizerId String
+  formalizer   Formalizer @relation(fields: [formalizerId], references: [id], onDelete: Cascade)
+  name         String
+  category     String     @default("OTRO") // CEDULA_FRONTAL, CEDULA_POSTERIOR, RUT, CERTIFICADO_BANCARIO, OTRO
+  fileKey      String
+  fileUrl      String
+  mimeType     String?
+  sizeBytes    Int?
+  createdAt    DateTime   @default(now())
+
+  @@map("barequero_documents")
 }
 
 model CapitalMovement {
