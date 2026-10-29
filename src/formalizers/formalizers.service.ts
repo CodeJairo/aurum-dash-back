@@ -1,11 +1,21 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import 'multer';
+import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
+import { StorageService } from './storage.service';
 import { CreateFormalizerDto } from './dto/create-formalizer.dto';
 import { FormalizerStatus, Prisma } from '@prisma/client';
+import {
+  REQUIRED_BAREQUERO_DOCUMENT_CATEGORIES,
+  evaluateBarequeroDocuments,
+} from './constants/barequero-documents.config';
 
 @Injectable()
 export class FormalizersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly storageService: StorageService,
+  ) {}
 
   async findAll(status?: 'AVAILABLE' | 'USED') {
     const where: Prisma.FormalizerWhereInput = {};
@@ -17,6 +27,9 @@ export class FormalizersService {
       where,
       orderBy: { createdAt: 'desc' },
       include: {
+        documents: {
+          orderBy: { createdAt: 'desc' },
+        },
         usedInBatch: {
           select: { id: true, code: true, name: true },
         },
@@ -29,6 +42,10 @@ export class FormalizersService {
       where: { status: FormalizerStatus.AVAILABLE },
       orderBy: { name: 'asc' },
     });
+  }
+
+  getRequiredDocumentsConfig() {
+    return REQUIRED_BAREQUERO_DOCUMENT_CATEGORIES;
   }
 
   async create(dto: CreateFormalizerDto) {
@@ -130,5 +147,126 @@ export class FormalizersService {
         usedAt: now,
       },
     });
+  }
+
+  async findOne(id: string) {
+    const formalizer = await this.prisma.formalizer.findUnique({
+      where: { id },
+      include: {
+        documents: {
+          orderBy: { createdAt: 'desc' },
+        },
+        usedInBatch: {
+          select: { id: true, code: true, name: true },
+        },
+      },
+    });
+
+    if (!formalizer) {
+      throw new NotFoundException(`Barequero con ID "${id}" no encontrado.`);
+    }
+
+    return formalizer;
+  }
+
+  async update(
+    id: string,
+    data: {
+      name?: string;
+      phone?: string;
+      address?: string;
+      city?: string;
+      country?: string;
+    },
+  ) {
+    await this.findOne(id);
+    return this.prisma.formalizer.update({
+      where: { id },
+      data: {
+        name: data.name !== undefined ? data.name.trim() : undefined,
+        phone: data.phone !== undefined ? data.phone.trim() : undefined,
+        address: data.address !== undefined ? data.address.trim() : undefined,
+        city: data.city !== undefined ? data.city.trim() : undefined,
+        country: data.country !== undefined ? data.country.trim() : undefined,
+      },
+      include: {
+        documents: true,
+        usedInBatch: true,
+      },
+    });
+  }
+
+  private generateDocumentName(category: string, documentNumber: string, originalName?: string): string {
+    const categoryMap: Record<string, string> = {
+      CEDULA_FRONT: 'cedula_frontal',
+      CEDULA_BACK: 'cedula_posterior',
+      RUT: 'rut',
+      CERTIFICADO_BANCARIO: 'certificado_bancario',
+      OTRO: 'documento',
+    };
+    const prefix = categoryMap[category] || 'documento';
+    const cleanDoc = (documentNumber || '').replace(/[^a-zA-Z0-9]/g, '');
+    const ext = originalName && originalName.includes('.')
+      ? path.extname(originalName).toLowerCase()
+      : '.pdf';
+    return `${prefix}_${cleanDoc}${ext}`;
+  }
+
+  async addDocument(
+    formalizerId: string,
+    file: Express.Multer.File,
+    category: string = 'OTRO',
+    customName?: string,
+  ) {
+    const formalizer = await this.findOne(formalizerId);
+
+    const uploadRes = await this.storageService.uploadFile(
+      file,
+      `barequeros/${formalizer.document}`,
+    );
+
+    const docName =
+      customName?.trim() ||
+      this.generateDocumentName(category, formalizer.document, file.originalname);
+
+    return this.prisma.barequeroDocument.create({
+      data: {
+        formalizerId: formalizer.id,
+        name: docName,
+        category: category || 'OTRO',
+        fileKey: uploadRes.fileKey,
+        fileUrl: uploadRes.fileUrl,
+        mimeType: uploadRes.mimeType,
+        sizeBytes: uploadRes.sizeBytes,
+      },
+    });
+  }
+
+  async getDocumentById(docId: string) {
+    return this.prisma.barequeroDocument.findUnique({
+      where: { id: docId },
+    });
+  }
+
+  async deleteDocument(formalizerId: string, documentId: string) {
+    const doc = await this.prisma.barequeroDocument.findFirst({
+      where: { id: documentId, formalizerId },
+    });
+
+    if (!doc) {
+      throw new NotFoundException('Documento no encontrado.');
+    }
+
+    await this.storageService.deleteFile(doc.fileKey);
+
+    await this.prisma.barequeroDocument.delete({
+      where: { id: documentId },
+    });
+
+    return { message: 'Documento eliminado exitosamente', id: documentId };
+  }
+
+  async getDocumentFileStream(fileKey: string) {
+    return this.storageService.getFileStream(fileKey);
   }
 }

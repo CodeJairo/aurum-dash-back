@@ -12,9 +12,11 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { SettingsModule } from './settings/settings.module';
 import { CapitalModule } from './capital/capital.module';
 import { FormalizersModule } from './formalizers/formalizers.module';
+import { StorageModule } from './storage/storage.module';
 
 @Module({
   imports: [
+    StorageModule,
     PrismaModule,
     PurchasesModule,
     BatchesModule,
