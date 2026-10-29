@@ -1,37 +1,43 @@
 import { ArrayNotEmpty, IsArray, IsNumber, IsOptional, IsPositive, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
+import { TransformMoney } from '../../common/transformers/money.transformer';
 
 export class SellBatchDto {
   @IsNumber()
   @IsPositive()
-  @Type(() => Number)
+  @TransformMoney()
   grossSaleAmount: number;
 
   @IsOptional()
   @IsNumber()
   @IsPositive()
-  @Type(() => Number)
+  @TransformMoney()
   salePricePerGram?: number;
 
   @IsOptional()
   @IsNumber()
   @IsPositive()
-  @Type(() => Number)
+  @TransformMoney()
   formalizationCostPerPerson?: number = 170000;
 
   @IsOptional()
   @IsNumber()
-  @Type(() => Number)
+  @TransformMoney()
   otherExpensesAmount?: number = 0;
 
   @IsOptional()
   @IsString()
   otherExpensesConcept?: string;
 
+  @IsOptional()
   @IsArray()
-  @ArrayNotEmpty()
   @IsString({ each: true })
-  formalizerIds: string[];
+  formalizerIds?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  formalizationPurchaseIds?: string[];
 
   @IsOptional()
   @IsString()

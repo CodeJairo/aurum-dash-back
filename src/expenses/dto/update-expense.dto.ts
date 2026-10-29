@@ -1,6 +1,7 @@
 import { IsEnum, IsNumber, IsOptional, IsPositive, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ExpenseCategoryDto } from './create-expense.dto';
+import { TransformMoney } from '../../common/transformers/money.transformer';
 
 export class UpdateExpenseDto {
   @IsOptional()
@@ -14,7 +15,7 @@ export class UpdateExpenseDto {
   @IsOptional()
   @IsNumber()
   @IsPositive()
-  @Type(() => Number)
+  @TransformMoney()
   amount?: number;
 
   @IsOptional()

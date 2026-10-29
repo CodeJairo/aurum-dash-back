@@ -50,10 +50,66 @@ export class SettingsService {
     });
   }
 
+  async calculateNextConsecutiveNum(prefix: string, tx?: Prisma.TransactionClient): Promise<number> {
+    const client = tx || this.prisma;
+    const purchases = await client.purchase.findMany({
+      where: {
+        type: 'FORMAL',
+        consecutive: {
+          not: null,
+        },
+      },
+      select: { consecutive: true },
+    });
+
+    let maxNum = 0;
+    const cleanPrefix = (prefix || 'DH-').toUpperCase();
+    for (const p of purchases) {
+      if (p.consecutive) {
+        const upper = p.consecutive.toUpperCase();
+        if (upper.startsWith(cleanPrefix)) {
+          const numPart = upper.slice(cleanPrefix.length).trim();
+          const parsed = parseInt(numPart, 10);
+          if (!isNaN(parsed) && parsed > maxNum) {
+            maxNum = parsed;
+          }
+        }
+      }
+    }
+
+    return maxNum + 1;
+  }
+
+  async calculateNextPurchaseNum(tx?: Prisma.TransactionClient): Promise<number> {
+    const client = tx || this.prisma;
+    const purchases = await client.purchase.findMany({
+      where: {
+        type: 'ACCOUNTING',
+        consecutive: {
+          not: null,
+        },
+      },
+      select: { consecutive: true },
+    });
+
+    let maxNum = 0;
+    for (const p of purchases) {
+      if (p.consecutive) {
+        const clean = p.consecutive.replace(/\D/g, '');
+        const parsed = parseInt(clean, 10);
+        if (!isNaN(parsed) && parsed > maxNum) {
+          maxNum = parsed;
+        }
+      }
+    }
+
+    return maxNum + 1;
+  }
+
   async getNextConsecutivePreview() {
     const settings = await this.getSettings();
-    const nextNum = settings.lastConsecutiveNum + 1;
-    const nextPurchaseNum = (settings.lastPurchaseNum || 0) + 1;
+    const nextNum = await this.calculateNextConsecutiveNum(settings.consecutivePrefix);
+    const nextPurchaseNum = await this.calculateNextPurchaseNum();
     return {
       prefix: settings.consecutivePrefix,
       nextNumber: nextNum,
@@ -70,28 +126,9 @@ export class SettingsService {
 
   async reserveNextConsecutive(tx?: Prisma.TransactionClient): Promise<string> {
     const client = tx || this.prisma;
-    let settings = await client.systemSetting.findUnique({
-      where: { id: this.defaultId },
-    });
+    const settings = await this.getSettings();
+    const nextNumber = await this.calculateNextConsecutiveNum(settings.consecutivePrefix, client);
 
-    if (!settings) {
-      settings = await client.systemSetting.create({
-        data: {
-          id: this.defaultId,
-          legalName: 'DANIEL CAMILO HERRERA RENTERIA',
-          document: '1.078.000.069',
-          address: 'CR 8 CL 30 8 07',
-          phone: '',
-          city: 'Quibdó',
-          country: 'Colombia',
-          consecutivePrefix: 'DH-',
-          lastConsecutiveNum: 0,
-          lastPurchaseNum: 0,
-        },
-      });
-    }
-
-    const nextNumber = settings.lastConsecutiveNum + 1;
     await client.systemSetting.update({
       where: { id: settings.id },
       data: {
@@ -104,28 +141,9 @@ export class SettingsService {
 
   async reserveNextPurchaseNum(tx?: Prisma.TransactionClient): Promise<number> {
     const client = tx || this.prisma;
-    let settings = await client.systemSetting.findUnique({
-      where: { id: this.defaultId },
-    });
+    const settings = await this.getSettings();
+    const nextNumber = await this.calculateNextPurchaseNum(client);
 
-    if (!settings) {
-      settings = await client.systemSetting.create({
-        data: {
-          id: this.defaultId,
-          legalName: 'DANIEL CAMILO HERRERA RENTERIA',
-          document: '1.078.000.069',
-          address: 'CR 8 CL 30 8 07',
-          phone: '',
-          city: 'Quibdó',
-          country: 'Colombia',
-          consecutivePrefix: 'DH-',
-          lastConsecutiveNum: 0,
-          lastPurchaseNum: 0,
-        },
-      });
-    }
-
-    const nextNumber = (settings.lastPurchaseNum || 0) + 1;
     await client.systemSetting.update({
       where: { id: settings.id },
       data: {

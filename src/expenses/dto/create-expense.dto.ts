@@ -1,5 +1,6 @@
 import { IsEnum, IsNotEmpty, IsNumber, IsOptional, IsPositive, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
+import { TransformMoney } from '../../common/transformers/money.transformer';
 
 export enum ExpenseCategoryDto {
   FOUR_PER_THOUSAND = 'FOUR_PER_THOUSAND',
@@ -21,7 +22,7 @@ export class CreateExpenseDto {
 
   @IsNumber()
   @IsPositive()
-  @Type(() => Number)
+  @TransformMoney()
   amount: number;
 
   @IsOptional()

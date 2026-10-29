@@ -1,5 +1,6 @@
 import { IsNotEmpty, IsNumber, IsOptional, IsPositive, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
+import { TransformMoney } from '../../common/transformers/money.transformer';
 
 export class CreateSaleDto {
   @IsOptional()
@@ -25,12 +26,12 @@ export class CreateSaleDto {
   @IsOptional()
   @IsNumber()
   @IsPositive()
-  @Type(() => Number)
+  @TransformMoney()
   pricePerGram?: number;
 
   @IsNumber()
   @IsPositive()
-  @Type(() => Number)
+  @TransformMoney()
   totalAmount: number;
 
   @IsOptional()

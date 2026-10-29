@@ -1,5 +1,5 @@
 import { IsEnum, IsNumber, IsOptional, IsPositive, IsString } from 'class-validator';
-import { Type } from 'class-transformer';
+import { TransformMoney } from '../../common/transformers/money.transformer';
 
 export enum CapitalActionDto {
   INJECTION = 'CAPITAL_INJECTION',
@@ -11,9 +11,9 @@ export class CreateCapitalMovementDto {
   @IsEnum(CapitalActionDto)
   action: CapitalActionDto;
 
+  @TransformMoney()
   @IsNumber()
   @IsPositive()
-  @Type(() => Number)
   amount: number;
 
   @IsString()

@@ -39,8 +39,17 @@ export class BatchesService {
         },
       });
 
-      // 2. Si vienen compras seleccionadas, asociarlas
+      // 2. Si vienen compras seleccionadas, asociarlas (verificando que sean normales)
       if (dto.purchaseIds && dto.purchaseIds.length > 0) {
+        const candidatePurchases = await tx.purchase.findMany({
+          where: { id: { in: dto.purchaseIds } },
+          select: { id: true, type: true },
+        });
+
+        if (candidatePurchases.some((p) => p.type !== 'ACCOUNTING')) {
+          throw new BadRequestException('Solo las compras normales se pueden asociar a un lote. Las compras a barequeros se usan para formalizar la venta.');
+        }
+
         await tx.purchase.updateMany({
           where: { id: { in: dto.purchaseIds } },
           data: { batchId: batch.id },
@@ -76,11 +85,15 @@ export class BatchesService {
     }
 
     return this.prisma.$transaction(async (tx) => {
-      // Obtener compras para verificar si pertenecían a otro lote previo
+      // Obtener compras para verificar si pertenecían a otro lote previo y validar que sean contables normales
       const purchases = await tx.purchase.findMany({
         where: { id: { in: dto.purchaseIds } },
-        select: { id: true, batchId: true },
+        select: { id: true, batchId: true, type: true },
       });
+
+      if (purchases.some((p) => p.type !== 'ACCOUNTING')) {
+        throw new BadRequestException('Solo las compras normales se pueden asociar a un lote. Las compras a barequeros se usan para formalizar la venta.');
+      }
 
       const previousBatchIds = Array.from(
         new Set(
@@ -154,8 +167,14 @@ export class BatchesService {
       where,
       orderBy: { createdAt: 'desc' },
       include: {
+        purchases: {
+          select: { id: true, consecutive: true, supplier: true, grossGrams: true, fineGrams: true, totalCost: true },
+        },
+        formalizedPurchases: {
+          select: { id: true, consecutive: true, supplier: true, grossGrams: true, fineGrams: true, totalCost: true },
+        },
         _count: {
-          select: { purchases: true, sales: true, expenses: true },
+          select: { purchases: true, formalizedPurchases: true, sales: true, expenses: true },
         },
       },
     });
@@ -168,6 +187,9 @@ export class BatchesService {
         purchases: {
           orderBy: { purchaseDate: 'desc' },
         },
+        formalizedPurchases: {
+          orderBy: { consecutive: 'asc' },
+        },
         sales: {
           orderBy: { saleDate: 'desc' },
         },
@@ -177,8 +199,9 @@ export class BatchesService {
         settlements: {
           orderBy: { settlementDate: 'desc' },
         },
+        formalizers: true,
         _count: {
-          select: { purchases: true, sales: true, expenses: true },
+          select: { purchases: true, formalizedPurchases: true, sales: true, expenses: true },
         },
       },
     });
@@ -202,7 +225,7 @@ export class BatchesService {
       },
       include: {
         _count: {
-          select: { purchases: true, sales: true, expenses: true },
+          select: { purchases: true, formalizedPurchases: true, sales: true, expenses: true },
         },
       },
     });
@@ -219,33 +242,71 @@ export class BatchesService {
       throw new BadRequestException('El lote no contiene gramos de oro para liquidar.');
     }
 
-    // Regla de formalización: ceil(grossGrams / 70)
-    const requiredPeople = Math.ceil(grossGrams / 70);
-    if (!dto.formalizerIds || dto.formalizerIds.length !== requiredPeople) {
-      throw new BadRequestException(
-        `Para formalizar este lote (${grossGrams.toFixed(2)} g brutos / 70) se requieren exactamente ${requiredPeople} personas, pero se seleccionaron ${dto.formalizerIds?.length || 0}.`,
-      );
+    let formalizerCount = 0;
+    const usesFormalPurchases = dto.formalizationPurchaseIds && dto.formalizationPurchaseIds.length > 0;
+
+    if (usesFormalPurchases) {
+      const formalPurchases = await this.prisma.purchase.findMany({
+        where: { id: { in: dto.formalizationPurchaseIds } },
+      });
+
+      if (formalPurchases.length !== dto.formalizationPurchaseIds!.length) {
+        throw new BadRequestException('Una o más compras a barequeros seleccionadas no fueron encontradas.');
+      }
+
+      for (const p of formalPurchases) {
+        if (p.type !== 'FORMAL') {
+          throw new BadRequestException(`La compra ${p.consecutive || p.id} no es de tipo Barequero.`);
+        }
+        if (p.formalizedBatchId && p.formalizedBatchId !== batch.id) {
+          throw new BadRequestException(`La compra a barequero ${p.consecutive || p.id} ya fue utilizada en otro lote.`);
+        }
+      }
+
+      const totalBarequeroGross = formalPurchases.reduce((acc, p) => acc + Number(p.grossGrams), 0);
+      const diff = Math.abs(totalBarequeroGross - grossGrams);
+      if (diff > 0.005) {
+        throw new BadRequestException(
+          `Los gramos brutos de las compras a barequeros (${totalBarequeroGross.toFixed(2)} g) deben igualar exactamente los gramos brutos del lote (${grossGrams.toFixed(2)} g). Diferencia: ${(totalBarequeroGross - grossGrams).toFixed(2)} g.`,
+        );
+      }
+
+      formalizerCount = formalPurchases.length;
+    } else if (dto.formalizerIds && dto.formalizerIds.length > 0) {
+      formalizerCount = dto.formalizerIds.length;
+    } else {
+      throw new BadRequestException('Debes seleccionar las compras a barequeros necesarias para formalizar la venta del lote.');
     }
 
     const grossSale = Number(dto.grossSaleAmount);
     const fourPerThousand = Number((grossSale * 0.004).toFixed(2));
     const costPerPerson = dto.formalizationCostPerPerson !== undefined ? Number(dto.formalizationCostPerPerson) : 170000;
-    const formalizationTotal = Number((requiredPeople * costPerPerson).toFixed(2));
+    const formalizationTotal = Number((formalizerCount * costPerPerson).toFixed(2));
     const otherExpenses = dto.otherExpensesAmount ? Number(dto.otherExpensesAmount) : 0;
     const netSale = Number((grossSale - fourPerThousand - formalizationTotal - otherExpenses).toFixed(2));
     const totalInvestment = Number(batch.totalInvestment);
     const netProfit = Number((netSale - totalInvestment).toFixed(2));
 
     return this.prisma.$transaction(async (tx) => {
-      // 1. Bloquear y marcar formalizadores como USED asociados al lote
-      await this.formalizersService.markAsUsed(dto.formalizerIds, batch.id, tx);
+      // 1. Vincular compras a barequeros al lote si aplica
+      if (usesFormalPurchases && dto.formalizationPurchaseIds) {
+        await tx.purchase.updateMany({
+          where: { id: { in: dto.formalizationPurchaseIds } },
+          data: { formalizedBatchId: batch.id },
+        });
+      }
+
+      // Si se enviaron formalizadores personas (compatibilidad), marcarlos
+      if (dto.formalizerIds && dto.formalizerIds.length > 0) {
+        await this.formalizersService.markAsUsed(dto.formalizerIds, batch.id, tx);
+      }
 
       // 2. Cerrar lote con métricas financieras de venta
       const updatedBatch = await tx.batch.update({
         where: { id: batch.id },
         data: {
           status: 'CLOSED',
-          formalizerCount: requiredPeople,
+          formalizerCount,
           formalizationCostPerPerson: new Prisma.Decimal(costPerPerson.toFixed(2)),
           formalizationTotalCost: new Prisma.Decimal(formalizationTotal.toFixed(2)),
           fourPerThousandAmount: new Prisma.Decimal(fourPerThousand.toFixed(2)),
@@ -263,6 +324,7 @@ export class BatchesService {
         include: {
           formalizers: true,
           purchases: true,
+          formalizedPurchases: true,
         },
       });
 
@@ -270,7 +332,7 @@ export class BatchesService {
       await tx.sale.create({
         data: {
           customer: `Venta Lote ${batch.code}`,
-          description: `Venta formalizada con ${requiredPeople} personas.`,
+          description: `Venta formalizada con ${formalizerCount} compras a barequeros.`,
           grossGrams: batch.totalGrossGrams,
           fineGrams: batch.totalFineGrams,
           pricePerGram: dto.salePricePerGram ? new Prisma.Decimal(Number(dto.salePricePerGram).toFixed(2)) : null,
@@ -293,6 +355,69 @@ export class BatchesService {
     });
   }
 
+  async getFormalizationSuggestions(id: string) {
+    const batch = await this.findOne(id);
+    const targetGrams = Number(batch.totalGrossGrams);
+    const targetCents = Math.round(targetGrams * 100);
+
+    const availablePurchases = await this.prisma.purchase.findMany({
+      where: {
+        type: 'FORMAL',
+        formalizedBatchId: null,
+      },
+      orderBy: { consecutive: 'asc' },
+    });
+
+    const items = availablePurchases.map((p) => ({
+      id: p.id,
+      consecutive: p.consecutive || 'DH-?',
+      supplier: p.supplier || 'Barequero',
+      grossGrams: Number(p.grossGrams),
+      cents: Math.round(Number(p.grossGrams) * 100),
+      raw: p,
+    }));
+
+    const combinations: Array<{
+      purchaseIds: string[];
+      consecutives: string[];
+      totalGrams: number;
+      count: number;
+    }> = [];
+
+    function search(index: number, currentSum: number, currentSelection: typeof items) {
+      if (combinations.length >= 10) return;
+      if (currentSum === targetCents) {
+        combinations.push({
+          purchaseIds: currentSelection.map((i) => i.id),
+          consecutives: currentSelection.map((i) => i.consecutive),
+          totalGrams: Number((currentSum / 100).toFixed(2)),
+          count: currentSelection.length,
+        });
+        return;
+      }
+      if (currentSum > targetCents || index >= items.length) return;
+
+      for (let i = index; i < items.length; i++) {
+        if (currentSum + items[i].cents <= targetCents) {
+          search(i + 1, currentSum + items[i].cents, [...currentSelection, items[i]]);
+        }
+      }
+    }
+
+    search(0, 0, []);
+
+    combinations.sort((a, b) => a.count - b.count);
+
+    return {
+      batchId: batch.id,
+      batchCode: batch.code,
+      targetGrossGrams: targetGrams,
+      availablePurchases,
+      combinations,
+      hasExactMatch: combinations.length > 0,
+    };
+  }
+
   async remove(id: string) {
     const batch = await this.findOne(id);
     if (batch.status === 'CLOSED') {
@@ -304,6 +429,11 @@ export class BatchesService {
       await tx.purchase.updateMany({
         where: { batchId: id },
         data: { batchId: null },
+      });
+
+      await tx.purchase.updateMany({
+        where: { formalizedBatchId: id },
+        data: { formalizedBatchId: null },
       });
 
       await tx.batch.delete({
