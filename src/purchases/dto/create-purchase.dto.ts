@@ -1,5 +1,6 @@
 import { IsEnum, IsNumber, IsOptional, IsPositive, IsString, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
+import { TransformMoney } from '../../common/transformers/money.transformer';
 
 export enum PricingModeDto {
   PER_FINE_GRAM = 'PER_FINE_GRAM',
@@ -82,7 +83,7 @@ export class CreatePurchaseDto {
 
   @IsNumber()
   @IsPositive()
-  @Type(() => Number)
+  @TransformMoney()
   pricePerGram: number;
 
   @IsOptional()

@@ -1,6 +1,7 @@
 import { IsEnum, IsNumber, IsOptional, IsPositive, IsString, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 import { PricingModeDto, PurchaseTypeDto } from './create-purchase.dto';
+import { TransformMoney } from '../../common/transformers/money.transformer';
 
 export class UpdatePurchaseDto {
   @IsOptional()
@@ -73,7 +74,7 @@ export class UpdatePurchaseDto {
   @IsOptional()
   @IsNumber()
   @IsPositive()
-  @Type(() => Number)
+  @TransformMoney()
   pricePerGram?: number;
 
   @IsOptional()
