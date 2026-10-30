@@ -43,8 +43,12 @@ export class BatchesController {
   }
 
   @Get(':id/formalization-suggestions')
-  getFormalizationSuggestions(@Param('id') id: string) {
-    return this.batchesService.getFormalizationSuggestions(id);
+  getFormalizationSuggestions(
+    @Param('id') id: string,
+    @Query('targetGrossGrams') targetGrossGrams?: string,
+  ) {
+    const target = targetGrossGrams ? Number(targetGrossGrams) : undefined;
+    return this.batchesService.getFormalizationSuggestions(id, target);
   }
 
   @Delete(':id/purchases/:purchaseId')

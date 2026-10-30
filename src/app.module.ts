@@ -13,6 +13,7 @@ import { SettingsModule } from './settings/settings.module';
 import { CapitalModule } from './capital/capital.module';
 import { FormalizersModule } from './formalizers/formalizers.module';
 import { StorageModule } from './storage/storage.module';
+import { MonthlySettlementsModule } from './monthly-settlements/monthly-settlements.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { StorageModule } from './storage/storage.module';
     SettingsModule,
     CapitalModule,
     FormalizersModule,
+    MonthlySettlementsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

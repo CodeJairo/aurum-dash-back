@@ -127,7 +127,7 @@ export class FormalizersController {
   }
 
   @Patch(':id')
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.BAREQUERO_OPERATOR)
   update(
     @Param('id') id: string,
     @Body()
@@ -143,7 +143,7 @@ export class FormalizersController {
   }
 
   @Post(':id/documents')
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.BAREQUERO_OPERATOR)
   @UseInterceptors(FileInterceptor('file'))
   uploadDocument(
     @Param('id') id: string,
@@ -164,7 +164,7 @@ export class FormalizersController {
   }
 
   @Post()
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.BAREQUERO_OPERATOR)
   create(@Body() dto: CreateFormalizerDto) {
     return this.formalizersService.create(dto);
   }

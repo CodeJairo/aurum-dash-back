@@ -7,6 +7,7 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   Res,
   UploadedFile,
   UseGuards,
@@ -29,9 +30,9 @@ export class PurchasesController {
   constructor(private readonly purchasesService: PurchasesService) {}
 
   @Post()
-  @Roles(Role.ADMIN)
-  create(@Body() dto: CreatePurchaseDto) {
-    return this.purchasesService.create(dto);
+  @Roles(Role.ADMIN, Role.BAREQUERO_OPERATOR)
+  create(@Body() dto: CreatePurchaseDto, @Req() req: any) {
+    return this.purchasesService.create(dto, req.user);
   }
 
   @Get('next-consecutive')
@@ -62,7 +63,7 @@ export class PurchasesController {
   }
 
   @Post(':id/signed-receipt')
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.BAREQUERO_OPERATOR)
   @UseInterceptors(FileInterceptor('file'))
   uploadSignedReceipt(
     @Param('id') id: string,

@@ -11,6 +11,7 @@ enum Role {
   ADMIN
   VIEWER
   PARTNER
+  BAREQUERO_OPERATOR
 }
 
 enum BatchStatus {
@@ -53,7 +54,7 @@ enum ExpenseCategory {
 model User {
   id                 String       @id @default(uuid())
   username           String?      @unique
-  email              String       @unique
+  email              String?      @unique
   name               String
   password           String
   role               Role         @default(PARTNER)
@@ -66,6 +67,7 @@ model User {
   sales              Sale[]
   expenses           Expense[]
   batchesCreated     Batch[]      @relation("BatchCreator")
+  monthlySettlementsCreated MonthlySettlement[] @relation("MonthlySettlementCreator")
 
   @@map("users")
 }
@@ -81,6 +83,12 @@ model Batch {
   totalGrossGrams    Decimal      @default(0.0000) @db.Decimal(12, 4)
   totalFineGrams     Decimal      @default(0.0000) @db.Decimal(12, 4)
   totalInvestment    Decimal      @default(0.00) @db.Decimal(14, 2)
+
+  // Valores de compra vs. refundición para venta
+  initialGrossGrams  Decimal?     @db.Decimal(12, 4)
+  initialFineGrams   Decimal?     @db.Decimal(12, 4)
+  meltedGrossGrams   Decimal?     @db.Decimal(12, 4)
+  meltedFineGrams    Decimal?     @db.Decimal(12, 4)
 
   // Métricas derivadas / Liquidación
   averageCostPerFineGram Decimal  @default(0.00) @db.Decimal(14, 2)
@@ -113,6 +121,9 @@ model Batch {
   expenses           Expense[]
   settlements        Settlement[]
   formalizers        Formalizer[]
+
+  monthlySettlementId String?
+  monthlySettlement   MonthlySettlement? @relation("MonthlySettlementBatches", fields: [monthlySettlementId], references: [id], onDelete: SetNull)
 
   @@map("batches")
 }
@@ -303,4 +314,58 @@ model Settlement {
   updatedAt      DateTime     @updatedAt
 
   @@map("settlements")
+}
+
+model MonthlySettlement {
+  id                    String                     @id @default(uuid())
+  code                  String                     @unique // Ej: LIQ-2026-10-001
+  startDate             DateTime
+  endDate               DateTime
+  settlementDate        DateTime                   @default(now())
+
+  // Consolidación Comercial de los Lotes cerrados en el periodo
+  totalGrossSales       Decimal                    @default(0.00) @db.Decimal(14, 2)
+  totalDirectExpenses   Decimal                    @default(0.00) @db.Decimal(14, 2)
+  totalNetSales         Decimal                    @default(0.00) @db.Decimal(14, 2)
+  totalInvestmentCost   Decimal                    @default(0.00) @db.Decimal(14, 2)
+  commercialProfit      Decimal                    @default(0.00) @db.Decimal(14, 2)
+
+  // Gastos Generales ingresados por el usuario
+  generalExpensesTotal  Decimal                    @default(0.00) @db.Decimal(14, 2)
+
+  // Utilidad Neta Real a Distribuir
+  netProfit             Decimal                    @default(0.00) @db.Decimal(14, 2)
+
+  // Repartición Socios
+  partner1Name          String                     @default("Daniel")
+  partner1Percent       Decimal                    @default(50.00) @db.Decimal(5, 2)
+  partner1Amount        Decimal                    @default(0.00) @db.Decimal(14, 2)
+
+  partner2Name          String                     @default("Andrés")
+  partner2Percent       Decimal                    @default(50.00) @db.Decimal(5, 2)
+  partner2Amount        Decimal                    @default(0.00) @db.Decimal(14, 2)
+
+  notes                 String?
+
+  createdById           String?
+  createdBy             User?                      @relation("MonthlySettlementCreator", fields: [createdById], references: [id])
+
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
+
+  expenses              MonthlySettlementExpense[]
+  batches               Batch[]                    @relation("MonthlySettlementBatches")
+
+  @@map("monthly_settlements")
+}
+
+model MonthlySettlementExpense {
+  id                  String            @id @default(uuid())
+  monthlySettlementId String
+  monthlySettlement   MonthlySettlement @relation(fields: [monthlySettlementId], references: [id], onDelete: Cascade)
+  concept             String
+  amount              Decimal           @db.Decimal(14, 2)
+  createdAt           DateTime          @default(now())
+
+  @@map("monthly_settlement_expenses")
 }

@@ -17,14 +17,8 @@ export class FormalizersService {
     private readonly storageService: StorageService,
   ) {}
 
-  async findAll(status?: 'AVAILABLE' | 'USED') {
-    const where: Prisma.FormalizerWhereInput = {};
-    if (status) {
-      where.status = status;
-    }
-
+  async findAll(_status?: 'AVAILABLE' | 'USED') {
     return this.prisma.formalizer.findMany({
-      where,
       orderBy: { createdAt: 'desc' },
       include: {
         documents: {
@@ -39,7 +33,6 @@ export class FormalizersService {
 
   async findAvailable() {
     return this.prisma.formalizer.findMany({
-      where: { status: FormalizerStatus.AVAILABLE },
       orderBy: { name: 'asc' },
     });
   }
@@ -103,20 +96,16 @@ export class FormalizersService {
       });
     }
 
-    // Si ya existe pero aún está disponible, actualizamos sus datos de contacto
-    if (existing.status === FormalizerStatus.AVAILABLE) {
-      return client.formalizer.update({
-        where: { id: existing.id },
-        data: {
-          name: data.name.trim() || existing.name,
-          address: data.address.trim() || existing.address,
-          phone: data.phone?.trim() || existing.phone,
-          city: data.city?.trim() || existing.city,
-        },
-      });
-    }
-
-    return existing;
+    // Si ya existe, actualizamos sus datos de contacto
+    return client.formalizer.update({
+      where: { id: existing.id },
+      data: {
+        name: data.name.trim() || existing.name,
+        address: data.address.trim() || existing.address,
+        phone: data.phone?.trim() || existing.phone,
+        city: data.city?.trim() || existing.city,
+      },
+    });
   }
 
   async markAsUsed(
@@ -124,17 +113,16 @@ export class FormalizersService {
     batchId: string,
     txClient: Prisma.TransactionClient,
   ) {
-    // Validar que todas existan y estén en estado AVAILABLE
+    // Validar que todas existan (un barequero puede ser utilizado múltiples veces)
     const persons = await txClient.formalizer.findMany({
       where: {
         id: { in: personIds },
-        status: FormalizerStatus.AVAILABLE,
       },
     });
 
     if (persons.length !== personIds.length) {
       throw new ConflictException(
-        'Una o más de las personas seleccionadas ya han sido utilizadas o no están disponibles.',
+        'Una o más de las personas seleccionadas no fueron encontradas en el sistema.',
       );
     }
 
@@ -142,7 +130,6 @@ export class FormalizersService {
     await txClient.formalizer.updateMany({
       where: { id: { in: personIds } },
       data: {
-        status: FormalizerStatus.USED,
         usedInBatchId: batchId,
         usedAt: now,
       },

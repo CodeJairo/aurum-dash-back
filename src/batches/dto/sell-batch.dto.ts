@@ -42,4 +42,16 @@ export class SellBatchDto {
   @IsOptional()
   @IsString()
   soldDate?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  @Type(() => Number)
+  meltedGrossGrams?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  @Type(() => Number)
+  meltedFineGrams?: number;
 }

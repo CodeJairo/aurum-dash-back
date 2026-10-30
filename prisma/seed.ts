@@ -4,13 +4,15 @@ import * as bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('Inicializando cuentas de usuarios (Daniel y Andrés)...');
+  console.log('Inicializando cuentas de usuarios (Daniel, Andrés y Operador)...');
 
   const danielPass = process.env.DANIEL_PASSWORD || 'password123';
   const andresPass = process.env.ANDRES_PASSWORD || 'password123';
+  const operadorPass = process.env.OPERADOR_PASSWORD || 'password123';
 
   const danielHashedPassword = bcrypt.hashSync(danielPass, 10);
   const andresHashedPassword = bcrypt.hashSync(andresPass, 10);
+  const operadorHashedPassword = bcrypt.hashSync(operadorPass, 10);
 
   // 1. Daniel - Administrador con Control Total
   const daniel = await prisma.user.upsert({
@@ -36,7 +38,7 @@ async function main() {
 
   // 2. Andrés - Auditor / Socio Administrador
   const andres = await prisma.user.upsert({
-    where: { email: 'andres@aurumdash.com' },
+    where: { username: 'andres' },
     update: {
       username: 'andres',
       name: 'Andres',
@@ -52,6 +54,27 @@ async function main() {
       password: andresHashedPassword,
       role: Role.VIEWER,
       profitSharePercent: 50.0,
+      isActive: true,
+    },
+  });
+
+  // 3. Operador - Auxiliar de Compras a Barequeros
+  const operador = await prisma.user.upsert({
+    where: { username: 'operador' },
+    update: {
+      username: 'operador',
+      name: 'Operador Barequeros',
+      password: operadorHashedPassword,
+      role: Role.BAREQUERO_OPERATOR,
+      profitSharePercent: 0,
+      isActive: true,
+    },
+    create: {
+      username: 'operador',
+      name: 'Operador Barequeros',
+      password: operadorHashedPassword,
+      role: Role.BAREQUERO_OPERATOR,
+      profitSharePercent: 0,
       isActive: true,
     },
   });
@@ -79,8 +102,9 @@ async function main() {
     },
   });
 
-  console.log(`✓ Cuenta de Daniel asegurada: ${daniel.username} (${daniel.email}) [ADMIN]`);
-  console.log(`✓ Cuenta de Andrés asegurada: ${andres.username} (${andres.email}) [VIEWER]`);
+  console.log(`✓ Cuenta de Daniel asegurada: ${daniel.username} [ADMIN]`);
+  console.log(`✓ Cuenta de Andrés asegurada: ${andres.username} [VIEWER]`);
+  console.log(`✓ Cuenta de Operador asegurada: ${operador.username} [BAREQUERO_OPERATOR]`);
   console.log('✓ Ajustes institucionales asegurados');
 }
 

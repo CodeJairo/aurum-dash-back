@@ -29,13 +29,11 @@ export class SalesService {
         fineGrams: dto.fineGrams !== undefined ? new Prisma.Decimal(Number(dto.fineGrams).toFixed(4)) : null,
         pricePerGram: dto.pricePerGram !== undefined ? new Prisma.Decimal(Number(dto.pricePerGram).toFixed(2)) : null,
         totalAmount: new Prisma.Decimal(Number(dto.totalAmount).toFixed(2)),
-        saleDate: dto.saleDate ? new Date(dto.saleDate) : new Date(),
+        saleDate: dto.saleDate ? new Date(`${dto.saleDate.slice(0, 10)}T12:00:00`) : new Date(),
         batchId: dto.batchId ?? null,
       },
       include: {
-        batch: {
-          select: { id: true, code: true, name: true, status: true },
-        },
+        batch: true,
       },
     });
 
@@ -56,9 +54,7 @@ export class SalesService {
       where,
       orderBy: { saleDate: 'desc' },
       include: {
-        batch: {
-          select: { id: true, code: true, name: true, status: true },
-        },
+        batch: true,
       },
     });
   }
@@ -109,7 +105,7 @@ export class SalesService {
         fineGrams: dto.fineGrams !== undefined ? new Prisma.Decimal(Number(dto.fineGrams).toFixed(4)) : existing.fineGrams,
         pricePerGram: dto.pricePerGram !== undefined ? new Prisma.Decimal(Number(dto.pricePerGram).toFixed(2)) : existing.pricePerGram,
         totalAmount: dto.totalAmount !== undefined ? new Prisma.Decimal(Number(dto.totalAmount).toFixed(2)) : existing.totalAmount,
-        saleDate: dto.saleDate ? new Date(dto.saleDate) : existing.saleDate,
+        saleDate: dto.saleDate ? new Date(`${dto.saleDate.slice(0, 10)}T12:00:00`) : existing.saleDate,
         batchId: newBatchId,
       },
       include: {

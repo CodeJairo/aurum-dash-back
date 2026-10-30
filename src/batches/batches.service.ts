@@ -237,10 +237,21 @@ export class BatchesService {
       throw new BadRequestException('Este lote ya se encuentra cerrado / vendido.');
     }
 
-    const grossGrams = Number(batch.totalGrossGrams);
-    if (grossGrams <= 0) {
+    const initialGross = Number(batch.totalGrossGrams);
+    const initialFine = Number(batch.totalFineGrams);
+    if (initialGross <= 0) {
       throw new BadRequestException('El lote no contiene gramos de oro para liquidar.');
     }
+
+    // Permitir modificar gramos brutos y finos por proceso de refundición
+    const finalGrossGrams =
+      dto.meltedGrossGrams !== undefined && Number(dto.meltedGrossGrams) > 0
+        ? Number(Number(dto.meltedGrossGrams).toFixed(4))
+        : initialGross;
+    const finalFineGrams =
+      dto.meltedFineGrams !== undefined && Number(dto.meltedFineGrams) > 0
+        ? Number(Number(dto.meltedFineGrams).toFixed(4))
+        : initialFine;
 
     let formalizerCount = 0;
     const usesFormalPurchases = dto.formalizationPurchaseIds && dto.formalizationPurchaseIds.length > 0;
@@ -264,10 +275,10 @@ export class BatchesService {
       }
 
       const totalBarequeroGross = formalPurchases.reduce((acc, p) => acc + Number(p.grossGrams), 0);
-      const diff = Math.abs(totalBarequeroGross - grossGrams);
+      const diff = Math.abs(totalBarequeroGross - finalGrossGrams);
       if (diff > 0.005) {
         throw new BadRequestException(
-          `Los gramos brutos de las compras a barequeros (${totalBarequeroGross.toFixed(2)} g) deben igualar exactamente los gramos brutos del lote (${grossGrams.toFixed(2)} g). Diferencia: ${(totalBarequeroGross - grossGrams).toFixed(2)} g.`,
+          `Los gramos brutos de las compras a barequeros (${totalBarequeroGross.toFixed(2)} g) deben igualar exactamente los gramos brutos refundidos del lote (${finalGrossGrams.toFixed(2)} g). Diferencia: ${(totalBarequeroGross - finalGrossGrams).toFixed(2)} g.`,
         );
       }
 
@@ -301,11 +312,17 @@ export class BatchesService {
         await this.formalizersService.markAsUsed(dto.formalizerIds, batch.id, tx);
       }
 
-      // 2. Cerrar lote con métricas financieras de venta
+      // 2. Cerrar lote con métricas financieras de venta y gramos refundidos
       const updatedBatch = await tx.batch.update({
         where: { id: batch.id },
         data: {
           status: 'CLOSED',
+          initialGrossGrams: new Prisma.Decimal(initialGross.toFixed(4)),
+          initialFineGrams: new Prisma.Decimal(initialFine.toFixed(4)),
+          meltedGrossGrams: new Prisma.Decimal(finalGrossGrams.toFixed(4)),
+          meltedFineGrams: new Prisma.Decimal(finalFineGrams.toFixed(4)),
+          totalGrossGrams: new Prisma.Decimal(finalGrossGrams.toFixed(4)),
+          totalFineGrams: new Prisma.Decimal(finalFineGrams.toFixed(4)),
           formalizerCount,
           formalizationCostPerPerson: new Prisma.Decimal(costPerPerson.toFixed(2)),
           formalizationTotalCost: new Prisma.Decimal(formalizationTotal.toFixed(2)),
@@ -318,7 +335,7 @@ export class BatchesService {
           totalExpenses: new Prisma.Decimal((fourPerThousand + formalizationTotal + otherExpenses).toFixed(2)),
           netProfit: new Prisma.Decimal(netProfit.toFixed(2)),
           salePricePerGram: dto.salePricePerGram ? new Prisma.Decimal(Number(dto.salePricePerGram).toFixed(2)) : null,
-          soldAt: dto.soldDate ? new Date(dto.soldDate) : new Date(),
+          soldAt: dto.soldDate ? new Date(`${dto.soldDate.slice(0, 10)}T12:00:00`) : new Date(),
           closedAt: new Date(),
         },
         include: {
@@ -332,32 +349,39 @@ export class BatchesService {
       await tx.sale.create({
         data: {
           customer: `Venta Lote ${batch.code}`,
-          description: `Venta formalizada con ${formalizerCount} compras a barequeros.`,
-          grossGrams: batch.totalGrossGrams,
-          fineGrams: batch.totalFineGrams,
+          description: `Venta formalizada con ${formalizerCount} compras a barequeros (Gramos refundidos: ${finalGrossGrams.toFixed(2)} g brutos / ${finalFineGrams.toFixed(2)} g finos).`,
+          grossGrams: new Prisma.Decimal(finalGrossGrams.toFixed(4)),
+          fineGrams: new Prisma.Decimal(finalFineGrams.toFixed(4)),
           pricePerGram: dto.salePricePerGram ? new Prisma.Decimal(Number(dto.salePricePerGram).toFixed(2)) : null,
           totalAmount: new Prisma.Decimal(grossSale.toFixed(2)),
-          saleDate: dto.soldDate ? new Date(dto.soldDate) : new Date(),
+          saleDate: dto.soldDate ? new Date(`${dto.soldDate.slice(0, 10)}T12:00:00`) : new Date(),
           batchId: batch.id,
         },
       });
 
-      // 4. Sumar el valor neto final a la Cartera de Capital
-      await this.capitalService.recordSystemMovement(
-        CapitalMovementType.BATCH_SALE_INCOME,
-        netSale,
-        `Ingreso neto venta lote ${batch.code} (Deducidos 4x1000, formalización y gastos)`,
-        batch.id,
-        tx,
-      );
+      // 4. Reintegrar únicamente el capital invertido a la Cartera de Capital de Trabajo
+      // La utilidad neta generada no se mezcla en el capital rotatorio; queda en la bolsa de utilidades del periodo
+      const capitalReplenishment = Math.max(0, Math.min(totalInvestment, netSale));
+      if (capitalReplenishment > 0) {
+        await this.capitalService.recordSystemMovement(
+          CapitalMovementType.BATCH_SALE_INCOME,
+          capitalReplenishment,
+          `Reintegro de capital invertido lote ${batch.code}`,
+          batch.id,
+          tx,
+        );
+      }
 
       return updatedBatch;
     });
   }
 
-  async getFormalizationSuggestions(id: string) {
+  async getFormalizationSuggestions(id: string, targetGrossOverride?: number) {
     const batch = await this.findOne(id);
-    const targetGrams = Number(batch.totalGrossGrams);
+    const targetGrams =
+      targetGrossOverride !== undefined && targetGrossOverride > 0
+        ? targetGrossOverride
+        : Number(batch.totalGrossGrams);
     const targetCents = Math.round(targetGrams * 100);
 
     const availablePurchases = await this.prisma.purchase.findMany({

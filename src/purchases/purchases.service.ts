@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import type {} from 'multer';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
@@ -7,7 +7,7 @@ import { CapitalService } from '../capital/capital.service';
 import { StorageService } from '../storage/storage.service';
 import { CreatePurchaseDto, PricingModeDto, PurchaseTypeDto } from './dto/create-purchase.dto';
 import { UpdatePurchaseDto } from './dto/update-purchase.dto';
-import { CapitalMovementType, Prisma } from '@prisma/client';
+import { CapitalMovementType, Prisma, Role } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -26,10 +26,24 @@ export class PurchasesService {
     return this.settingsService.getNextConsecutivePreview();
   }
 
-  async create(dto: CreatePurchaseDto) {
+  async create(dto: CreatePurchaseDto, currentUser?: any) {
     const grossGrams = Number(dto.grossGrams);
     const pricePerGram = Number(dto.pricePerGram);
     const purchaseType = dto.type ?? PurchaseTypeDto.ACCOUNTING;
+
+    // Validación de permisos por rol
+    if (currentUser?.role === Role.BAREQUERO_OPERATOR && purchaseType !== PurchaseTypeDto.FORMAL) {
+      throw new ForbiddenException(
+        'El usuario operador únicamente está autorizado para registrar compras a barequeros.',
+      );
+    }
+
+    // Validación tope máximo legal de compra a barequeros: 70.9 g brutos
+    if (purchaseType === PurchaseTypeDto.FORMAL && grossGrams > 70.9) {
+      throw new BadRequestException(
+        `El gramaje bruto máximo permitido para una compra a barequero es de 70.9 gramos. (Ingresado: ${grossGrams.toFixed(2)} g)`,
+      );
+    }
 
     // Normalización de Ley (si escribe 750 -> 0.750)
     let purity: number | null = null;
@@ -115,8 +129,8 @@ export class PurchasesService {
             pricingMode: pricingMode as any,
             totalCost: new Prisma.Decimal(totalCost.toFixed(2)),
             batchId: null,
-            purchaseDate: dto.purchaseDate ? new Date(dto.purchaseDate) : new Date(),
-            deliveryDate: dto.deliveryDate ? new Date(dto.deliveryDate) : new Date(),
+            purchaseDate: dto.purchaseDate ? new Date(`${dto.purchaseDate.slice(0, 10)}T12:00:00`) : new Date(),
+            deliveryDate: dto.deliveryDate ? new Date(`${dto.deliveryDate.slice(0, 10)}T12:00:00`) : new Date(),
           },
           include: {
             batch: {
@@ -178,8 +192,8 @@ export class PurchasesService {
           pricingMode: pricingMode as any,
           totalCost: new Prisma.Decimal(totalCost.toFixed(2)),
           batchId: dto.batchId ?? null,
-          purchaseDate: dto.purchaseDate ? new Date(dto.purchaseDate) : new Date(),
-          deliveryDate: dto.deliveryDate ? new Date(dto.deliveryDate) : new Date(),
+          purchaseDate: dto.purchaseDate ? new Date(`${dto.purchaseDate.slice(0, 10)}T12:00:00`) : new Date(),
+          deliveryDate: dto.deliveryDate ? new Date(`${dto.deliveryDate.slice(0, 10)}T12:00:00`) : new Date(),
         },
         include: {
           batch: {
@@ -255,6 +269,12 @@ export class PurchasesService {
 
     const grossGrams = dto.grossGrams !== undefined ? Number(dto.grossGrams) : Number(existing.grossGrams);
     const pricePerGram = dto.pricePerGram !== undefined ? Number(dto.pricePerGram) : Number(existing.pricePerGram);
+
+    if (existing.type === 'FORMAL' && grossGrams > 70.9) {
+      throw new BadRequestException(
+        `El gramaje bruto máximo permitido para una compra a barequero es de 70.9 gramos. (Ingresado: ${grossGrams.toFixed(2)} g)`,
+      );
+    }
     
     let purity = existing.purity ? Number(existing.purity) : null;
     let purityRaw = existing.purityRaw;
@@ -310,8 +330,8 @@ export class PurchasesService {
         pricingMode: pricingMode as any,
         totalCost: new Prisma.Decimal(totalCost.toFixed(2)),
         batchId: newBatchId,
-        purchaseDate: dto.purchaseDate ? new Date(dto.purchaseDate) : existing.purchaseDate,
-        deliveryDate: dto.deliveryDate ? new Date(dto.deliveryDate) : existing.deliveryDate,
+        purchaseDate: dto.purchaseDate ? new Date(`${dto.purchaseDate.slice(0, 10)}T12:00:00`) : existing.purchaseDate,
+        deliveryDate: dto.deliveryDate ? new Date(`${dto.deliveryDate.slice(0, 10)}T12:00:00`) : existing.deliveryDate,
       },
       include: {
         batch: {
@@ -401,9 +421,22 @@ export class PurchasesService {
       worksheet.getCell('G18').value = totalVal;
       worksheet.getCell('G21').value = totalVal;
 
+      // Configuración de impresión: centrado, tamaño carta y auto-escalado al ancho completo
+      worksheet.pageSetup = {
+        paperSize: 9, // Carta (Letter)
+        orientation: 'portrait',
+        printArea: 'B2:G21',
+        horizontalCentered: true,
+        verticalCentered: true,
+        fitToPage: true,
+        fitToWidth: 1,
+        fitToHeight: 0,
+      };
+
       const rawBuffer = await workbook.xlsx.writeBuffer();
       const buffer = Buffer.from(rawBuffer);
-      const filename = `Compra_${purchase.consecutive || '1'}.xlsx`;
+      const safeConsecutive = (purchase.consecutive || '1').replace(/[\/\s\\:]+/g, '-');
+      const filename = `Liquidacion_Compra_${safeConsecutive}_${y}-${m}-${d}.xlsx`;
 
       return { buffer, filename };
     }
@@ -448,9 +481,22 @@ export class PurchasesService {
     worksheet.getCell('G26').value = totalVal;
     worksheet.getCell('G29').value = totalVal;
 
+    // Configuración de impresión para acta de barequero
+    worksheet.pageSetup = {
+      paperSize: 9, // Carta (Letter)
+      orientation: 'portrait',
+      printArea: 'B2:G29',
+      horizontalCentered: true,
+      verticalCentered: true,
+      fitToPage: true,
+      fitToWidth: 1,
+      fitToHeight: 0,
+    };
+
     const rawBuffer = await workbook.xlsx.writeBuffer();
     const buffer = Buffer.from(rawBuffer);
-    const filename = `${purchase.consecutive || 'Acta_Barequero'}.xlsx`;
+    const safeConsecutive = (purchase.consecutive || 'DH-1').replace(/[\/\s\\:]+/g, '-');
+    const filename = `Liquidacion_Compra_${safeConsecutive}_${y}-${m}-${d}.xlsx`;
 
     return { buffer, filename };
   }
