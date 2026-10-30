@@ -4,7 +4,7 @@ const bcrypt = require('bcryptjs');
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🌱 Inicializando cuentas de usuarios (Daniel y Andrés)...');
+  console.log('🌱 Inicializando cuentas de usuarios (Daniel, Andrés y Operador)...');
 
   const defaultHashedPassword = bcrypt.hashSync('password123', 10);
 
@@ -52,8 +52,53 @@ async function main() {
     },
   });
 
+  // 3. Operador - Auxiliar de Compras a Barequeros
+  const operador = await prisma.user.upsert({
+    where: { email: 'operador@aurumdash.com' },
+    update: {
+      username: 'operador',
+      name: 'Operador Barequeros',
+      password: defaultHashedPassword,
+      role: Role.BAREQUERO_OPERATOR || 'BAREQUERO_OPERATOR',
+      profitSharePercent: 0,
+      isActive: true,
+    },
+    create: {
+      username: 'operador',
+      email: 'operador@aurumdash.com',
+      name: 'Operador Barequeros',
+      password: defaultHashedPassword,
+      role: Role.BAREQUERO_OPERATOR || 'BAREQUERO_OPERATOR',
+      profitSharePercent: 0,
+      isActive: true,
+    },
+  });
+
+  // 4. Ajustes Institucionales (Atlas Capital)
+  await prisma.systemSetting.upsert({
+    where: { id: 'company_profile' },
+    update: {
+      legalName: 'DANIEL CAMILO HERRERA RENTERIA',
+      document: '1.078.000.069',
+      address: 'CR 8 CL 30 8 07',
+      city: 'Quibdó',
+      country: 'Colombia',
+      consecutivePrefix: 'DH-',
+    },
+    create: {
+      id: 'company_profile',
+      legalName: 'DANIEL CAMILO HERRERA RENTERIA',
+      document: '1.078.000.069',
+      address: 'CR 8 CL 30 8 07',
+      city: 'Quibdó',
+      country: 'Colombia',
+      consecutivePrefix: 'DH-',
+    },
+  });
+
   console.log(`✓ Cuenta de Daniel lista: ${daniel.username} (${daniel.email}) [ADMIN]`);
   console.log(`✓ Cuenta de Andrés lista: ${andres.username} (${andres.email}) [VIEWER]`);
+  console.log(`✓ Cuenta de Operador lista: ${operador.username} (${operador.email}) [OPERADOR]`);
 }
 
 main()
