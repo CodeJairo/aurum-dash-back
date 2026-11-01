@@ -2,6 +2,7 @@ import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   SiigoPayment,
+  SiigoPaymentReceiptAdvancePayload,
   SiigoPaymentReceiptDetailedPayload,
 } from './siigo.interfaces';
 
@@ -326,15 +327,10 @@ export class SiigoService {
       phone: purchase.vendorPhone || undefined,
     });
 
-    // 2. Preparar payload del Recibo de Pago (RP)
+    // 2. Preparar payload del Recibo de Pago (RP) en modalidad Detailed (partida doble Débito / Crédito)
     const token = await this.getAuthToken();
     const dateStr = purchase.purchaseDate.toISOString().slice(0, 10);
     const totalAmount = Math.round(Number(purchase.totalCost));
-
-    const payment: SiigoPayment = {
-      id: Number(this.cashPaymentMethodId), // 4375 Efectivo
-      value: totalAmount,
-    };
 
     const receiptPayload: SiigoPaymentReceiptDetailedPayload = {
       document: {
@@ -355,8 +351,16 @@ export class SiigoService {
           description: `Anticipo de aporte contrato barequero - Compra Nº ${purchase.consecutive || ''}`,
           value: totalAmount,
         },
+        {
+          account: {
+            code: String(this.creditAccountCode).trim(), // 11050501 Caja General Efectivo
+            movement: 'Credit',
+          },
+          description: `Salida de efectivo anticipo aporte barequero - Compra Nº ${purchase.consecutive || ''}`,
+          value: totalAmount,
+        },
       ],
-      payment,
+      observations: `Anticipo de aporte contrato barequero - Compra Nº ${purchase.consecutive || ''}`,
     };
 
     try {

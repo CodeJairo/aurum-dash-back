@@ -6,6 +6,7 @@
 export interface SiigoPayment {
   id: number;       // ID entero del método (ej: 4375)
   value: number;    // Valor numérico estricto (ej: 15960000)
+  due_date?: string; // Formato YYYY-MM-DD
 }
 
 /**
@@ -29,10 +30,23 @@ export interface SiigoDetailedItem {
 }
 
 /**
+ * Payload completo para creación de Recibo de Pago (RP) tipo AdvancePayment
+ * En modalidad AdvancePayment, Siigo reconoce el pago como un anticipo oficial al proveedor,
+ * asociando el medio de pago, liquidando el total en el PDF y el encabezado del comprobante.
+ */
+export interface SiigoPaymentReceiptAdvancePayload {
+  document: {
+    id: number;       // ej: 31163 para RP-2 Aportes
+  };
+  date: string;       // Formato YYYY-MM-DD
+  type: 'AdvancePayment';
+  supplier: SiigoSupplier;
+  payment: SiigoPayment;
+  observations?: string;
+}
+
+/**
  * Payload completo para creación de Recibo de Pago (RP) tipo Detailed
- * En modalidad Detailed con forma de pago en efectivo, items lleva el Débito (13309595)
- * y payment lleva la forma de pago (4375), a partir de la cual Siigo acredita automáticamente
- * la cuenta de caja (11050501) y asigna el total en el encabezado del comprobante.
  */
 export interface SiigoPaymentReceiptDetailedPayload {
   document: {
@@ -42,6 +56,6 @@ export interface SiigoPaymentReceiptDetailedPayload {
   type: 'Detailed';
   supplier: SiigoSupplier;
   items: SiigoDetailedItem[];
-  payment: SiigoPayment;
+  payment?: SiigoPayment;
   observations?: string;
 }
