@@ -1,11 +1,11 @@
 /**
  * Estructura estricta del medio de pago en Siigo API para POST /v1/payment-receipts
- * Siigo rechaza campos adicionales como "name" en la creación y exige tipos numéricos estrictos.
+ * Para métodos de contado (como Efectivo 4375), Siigo requiere únicamente id y value.
+ * No se debe enviar due_date (genera invalid_payment al ser contado) ni name (campo de solo lectura).
  */
 export interface SiigoPayment {
   id: number;       // ID entero del método (ej: 4375)
   value: number;    // Valor numérico estricto (ej: 15960000)
-  due_date: string; // Formato YYYY-MM-DD
 }
 
 /**
@@ -30,8 +30,9 @@ export interface SiigoDetailedItem {
 
 /**
  * Payload completo para creación de Recibo de Pago (RP) tipo Detailed
- * En modalidad Detailed, la partida doble completa (Débito y Crédito) se envía en items,
- * sin el objeto payment para evitar el error invalid_payment por duplicidad de salida.
+ * En modalidad Detailed con forma de pago en efectivo, items lleva el Débito (13309595)
+ * y payment lleva la forma de pago (4375), a partir de la cual Siigo acredita automáticamente
+ * la cuenta de caja (11050501) y asigna el total en el encabezado del comprobante.
  */
 export interface SiigoPaymentReceiptDetailedPayload {
   document: {
@@ -41,6 +42,6 @@ export interface SiigoPaymentReceiptDetailedPayload {
   type: 'Detailed';
   supplier: SiigoSupplier;
   items: SiigoDetailedItem[];
-  payment?: SiigoPayment;
+  payment: SiigoPayment;
   observations?: string;
 }
