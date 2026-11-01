@@ -23,6 +23,7 @@ import { UpdatePurchaseDto } from './dto/update-purchase.dto';
 import { AuthGuard } from '../auth/auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { Public } from '../auth/public.decorator';
 
 @Controller('purchases')
 @UseGuards(AuthGuard, RolesGuard)
@@ -62,6 +63,13 @@ export class PurchasesController {
     res.send(buffer);
   }
 
+  @Post('vendor-photo')
+  @Roles(Role.ADMIN, Role.BAREQUERO_OPERATOR)
+  @UseInterceptors(FileInterceptor('file'))
+  uploadVendorPhoto(@UploadedFile() file: Express.Multer.File) {
+    return this.purchasesService.uploadVendorPhoto(file);
+  }
+
   @Post(':id/signed-receipt')
   @Roles(Role.ADMIN, Role.BAREQUERO_OPERATOR)
   @UseInterceptors(FileInterceptor('file'))
@@ -72,6 +80,7 @@ export class PurchasesController {
     return this.purchasesService.uploadSignedReceipt(id, file);
   }
 
+  @Public()
   @Get(':id/signed-receipt/file')
   async getSignedReceiptFile(@Param('id') id: string, @Res() res: Response) {
     const { stream, mimeType, length, filename } =

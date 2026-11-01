@@ -1,6 +1,18 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+import * as fs from 'fs';
+import * as path from 'path';
+
+// Cargar variables de .env en desarrollo si existen
+try {
+  const envPath = path.resolve(process.cwd(), '.env');
+  if (fs.existsSync(envPath) && typeof (process as any).loadEnvFile === 'function') {
+    (process as any).loadEnvFile(envPath);
+  }
+} catch {
+  // Ignorar errores de carga si ya están en variables del sistema
+}
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);

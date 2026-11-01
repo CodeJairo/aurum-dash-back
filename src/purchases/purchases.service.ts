@@ -131,6 +131,8 @@ export class PurchasesService {
             batchId: null,
             purchaseDate: dto.purchaseDate ? new Date(`${dto.purchaseDate.slice(0, 10)}T12:00:00`) : new Date(),
             deliveryDate: dto.deliveryDate ? new Date(`${dto.deliveryDate.slice(0, 10)}T12:00:00`) : new Date(),
+            vendorPhotoUrl: dto.vendorPhotoUrl || null,
+            vendorPhotoKey: dto.vendorPhotoKey || null,
           },
           include: {
             batch: {
@@ -144,7 +146,7 @@ export class PurchasesService {
 
         // 1. Auto-crear / registrar persona para formalizar si vienen los datos del Barequero
         if (dto.vendorDoc && dto.supplier) {
-          await this.formalizersService.upsertFromBarequero(
+          const formalizer = await this.formalizersService.upsertFromBarequero(
             {
               name: dto.supplier,
               document: dto.vendorDoc,
@@ -154,7 +156,30 @@ export class PurchasesService {
               country: dto.vendorCountry || 'Colombia',
             },
             tx,
+            dto.updateFormalizerDetails ?? true,
           );
+
+          // Si viene foto del barequero, archivarla también automáticamente en sus documentos del mes
+          if (dto.vendorPhotoUrl && formalizer) {
+            const months = [
+              'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+              'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+            ];
+            const pDate = dto.deliveryDate ? new Date(dto.deliveryDate) : new Date();
+            const currentPeriod = dto.monthPeriod?.trim() || `${months[pDate.getMonth()]} ${pDate.getFullYear()}`;
+
+            await tx.barequeroDocument.create({
+              data: {
+                formalizerId: formalizer.id,
+                name: `foto_barequero_${formalizer.document}`,
+                category: 'FOTO_BAREQUERO',
+                period: currentPeriod,
+                fileKey: dto.vendorPhotoKey || `barequeros/photos/foto_${formalizer.document}.jpg`,
+                fileUrl: dto.vendorPhotoUrl,
+                mimeType: 'image/jpeg',
+              },
+            });
+          }
         }
 
         // Las compras a barequeros NO descuentan el capital de cartera
@@ -230,9 +255,13 @@ export class PurchasesService {
       where.type = type;
     }
 
-    return this.prisma.purchase.findMany({
+    const purchases = await this.prisma.purchase.findMany({
       where,
-      orderBy: { createdAt: 'desc' },
+      orderBy: [
+        { deliveryDate: 'desc' },
+        { purchaseDate: 'desc' },
+        { createdAt: 'desc' },
+      ],
       include: {
         batch: {
           select: { id: true, code: true, name: true, status: true },
@@ -242,6 +271,53 @@ export class PurchasesService {
         },
       },
     });
+
+    // Fallback: Si alguna compra formal no tiene vendorPhotoUrl, resolverla desde los documentos del barequero
+    const missingPhotoDocs = [
+      ...new Set(
+        purchases
+          .filter((p) => p.type === 'FORMAL' && !p.vendorPhotoUrl && p.vendorDoc)
+          .map((p) => p.vendorDoc!.trim()),
+      ),
+    ];
+
+    if (missingPhotoDocs.length > 0) {
+      const barequeroPhotos = await this.prisma.barequeroDocument.findMany({
+        where: {
+          category: 'FOTO_BAREQUERO',
+          formalizer: {
+            document: { in: missingPhotoDocs },
+          },
+        },
+        include: {
+          formalizer: {
+            select: { document: true },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      const photoMap = new Map<string, { url: string; key: string }>();
+      for (const doc of barequeroPhotos) {
+        if (doc.formalizer?.document && !photoMap.has(doc.formalizer.document)) {
+          photoMap.set(doc.formalizer.document, { url: doc.fileUrl, key: doc.fileKey });
+        }
+      }
+
+      return purchases.map((p) => {
+        if (p.type === 'FORMAL' && !p.vendorPhotoUrl && p.vendorDoc && photoMap.has(p.vendorDoc.trim())) {
+          const match = photoMap.get(p.vendorDoc.trim())!;
+          return {
+            ...p,
+            vendorPhotoUrl: match.url,
+            vendorPhotoKey: match.key,
+          };
+        }
+        return p;
+      });
+    }
+
+    return purchases;
   }
 
   async findOne(id: string) {
@@ -255,6 +331,25 @@ export class PurchasesService {
 
     if (!purchase) {
       throw new NotFoundException(`Compra con ID "${id}" no encontrada.`);
+    }
+
+    if (purchase.type === 'FORMAL' && !purchase.vendorPhotoUrl && purchase.vendorDoc) {
+      const barequeroPhoto = await this.prisma.barequeroDocument.findFirst({
+        where: {
+          category: 'FOTO_BAREQUERO',
+          formalizer: {
+            document: purchase.vendorDoc.trim(),
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (barequeroPhoto) {
+        return {
+          ...purchase,
+          vendorPhotoUrl: barequeroPhoto.fileUrl,
+          vendorPhotoKey: barequeroPhoto.fileKey,
+        };
+      }
     }
 
     return purchase;
@@ -624,6 +719,21 @@ export class PurchasesService {
         },
       },
     });
+  }
+
+  async uploadVendorPhoto(file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('No se recibió ningún archivo de imagen.');
+    }
+    const uploadRes = await this.storageService.uploadFile(
+      file,
+      'barequeros/photos',
+      '/api/formalizers/documents/file',
+    );
+    return {
+      fileUrl: uploadRes.fileUrl,
+      fileKey: uploadRes.fileKey,
+    };
   }
 
   async getSignedReceiptStream(id: string) {

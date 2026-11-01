@@ -74,6 +74,7 @@ export class FormalizersService {
       country?: string;
     },
     txClient?: Prisma.TransactionClient,
+    allowUpdate: boolean = true,
   ) {
     const client = txClient || this.prisma;
     const docClean = data.document.trim();
@@ -96,13 +97,17 @@ export class FormalizersService {
       });
     }
 
-    // Si ya existe, actualizamos sus datos de contacto
+    if (!allowUpdate) {
+      return existing;
+    }
+
+    // Si ya existe y se permite actualizar, actualizamos sus datos de contacto
     return client.formalizer.update({
       where: { id: existing.id },
       data: {
         name: data.name.trim() || existing.name,
         address: data.address.trim() || existing.address,
-        phone: data.phone?.trim() || existing.phone,
+        phone: data.phone !== undefined ? data.phone.trim() : existing.phone,
         city: data.city?.trim() || existing.city,
       },
     });
@@ -204,6 +209,7 @@ export class FormalizersService {
     file: Express.Multer.File,
     category: string = 'OTRO',
     customName?: string,
+    period?: string,
   ) {
     const formalizer = await this.findOne(formalizerId);
 
@@ -216,17 +222,38 @@ export class FormalizersService {
       customName?.trim() ||
       this.generateDocumentName(category, formalizer.document, file.originalname);
 
-    return this.prisma.barequeroDocument.create({
+    const createdDoc = await this.prisma.barequeroDocument.create({
       data: {
         formalizerId: formalizer.id,
         name: docName,
         category: category || 'OTRO',
+        period: period?.trim() || null,
         fileKey: uploadRes.fileKey,
         fileUrl: uploadRes.fileUrl,
         mimeType: uploadRes.mimeType,
         sizeBytes: uploadRes.sizeBytes,
       },
     });
+
+    // Si es fotografía del barequero, actualizar compras de este barequero que no tengan foto
+    if (category === 'FOTO_BAREQUERO') {
+      try {
+        await this.prisma.purchase.updateMany({
+          where: {
+            vendorDoc: formalizer.document,
+            vendorPhotoUrl: null,
+          },
+          data: {
+            vendorPhotoUrl: uploadRes.fileUrl,
+            vendorPhotoKey: uploadRes.fileKey,
+          },
+        });
+      } catch (err) {
+        // No bloquear la subida si falla la actualización en compras
+      }
+    }
+
+    return createdDoc;
   }
 
   async getDocumentById(docId: string) {

@@ -172,6 +172,15 @@ model Purchase {
   signedReceiptName String?
   signedAt          DateTime?
 
+  // Sincronización Siigo Nube (Recibos de Pago)
+  siigoReceiptId     String?
+  siigoReceiptNumber String?
+  siigoSyncedAt      DateTime?
+
+  // Foto del Barequero al momento de la compra
+  vendorPhotoUrl     String?
+  vendorPhotoKey     String?
+
   createdById  String?
   createdBy    User?        @relation(fields: [createdById], references: [id])
 
@@ -225,7 +234,8 @@ model BarequeroDocument {
   formalizerId String
   formalizer   Formalizer @relation(fields: [formalizerId], references: [id], onDelete: Cascade)
   name         String
-  category     String     @default("OTRO") // CEDULA_FRONTAL, CEDULA_POSTERIOR, RUT, CERTIFICADO_BANCARIO, OTRO
+  category     String     @default("OTRO") // CEDULA_FRONTAL, CEDULA_POSTERIOR, RUT, CERTIFICADO_BANCARIO, FOTO_BAREQUERO, OTRO
+  period       String?    // Ej: "2026-11" o "Noviembre 2026" para carpetas mensuales
   fileKey      String
   fileUrl      String
   mimeType     String?

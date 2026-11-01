@@ -20,6 +20,7 @@ import { CreateFormalizerDto } from './dto/create-formalizer.dto';
 import { AuthGuard } from '../auth/auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { Public } from '../auth/public.decorator';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type {} from 'multer';
 import * as path from 'path';
@@ -71,6 +72,7 @@ export class FormalizersController {
     stream.pipe(res);
   }
 
+  @Public()
   @Get(['documents/file', 'documents/file/{*filePath}'])
   async getFile(
     @Param('filePath') filePath: string,
@@ -110,10 +112,13 @@ export class FormalizersController {
       await this.formalizersService.getDocumentFileStream(fileKey);
     const filename = path.basename(fileKey);
 
-    res.setHeader('Content-Type', mimeType || 'application/octet-stream');
+    const isImage = mimeType?.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(filename);
+    const disposition = isImage ? 'inline' : 'attachment';
+
+    res.setHeader('Content-Type', mimeType || (isImage ? 'image/jpeg' : 'application/octet-stream'));
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="${encodeURIComponent(filename)}"`,
+      `${disposition}; filename="${encodeURIComponent(filename)}"`,
     );
     if (length) {
       res.setHeader('Content-Length', length);
@@ -150,8 +155,9 @@ export class FormalizersController {
     @UploadedFile() file: Express.Multer.File,
     @Body('category') category: string,
     @Body('name') customName?: string,
+    @Body('period') period?: string,
   ) {
-    return this.formalizersService.addDocument(id, file, category, customName);
+    return this.formalizersService.addDocument(id, file, category, customName, period);
   }
 
   @Delete(':id/documents/:docId')

@@ -46,6 +46,24 @@ export class CreatePurchaseDto {
   @IsString()
   vendorCountry?: string;
 
+  // Foto del Barequero al momento de la compra
+  @IsOptional()
+  @IsString()
+  vendorPhotoUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  vendorPhotoKey?: string;
+
+  // Actualizar datos del barequero en el directorio local
+  @IsOptional()
+  updateFormalizerDetails?: boolean;
+
+  // Periodo / Carpeta mensual (Ej: "Noviembre 2026")
+  @IsOptional()
+  @IsString()
+  monthPeriod?: string;
+
   // Receptor
   @IsOptional()
   @IsString()

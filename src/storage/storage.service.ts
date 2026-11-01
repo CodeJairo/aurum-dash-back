@@ -115,26 +115,30 @@ export class StorageService implements OnModuleInit {
     const fileKey = `${prefix}/${uniqueSuffix}${ext}`;
 
     if (this.s3Client && this.bucketName) {
-      await this.s3Client.send(
-        new PutObjectCommand({
-          Bucket: this.bucketName,
-          Key: fileKey,
-          Body: file.buffer,
-          ContentType: file.mimetype,
-        }),
-      );
+      try {
+        await this.s3Client.send(
+          new PutObjectCommand({
+            Bucket: this.bucketName,
+            Key: fileKey,
+            Body: file.buffer,
+            ContentType: file.mimetype,
+          }),
+        );
 
-      const publicBase = process.env.S3_PUBLIC_URL || '';
-      const fileUrl = publicBase
-        ? `${publicBase}/${fileKey}`
-        : `${apiBasePath}/${encodeURIComponent(fileKey)}`;
+        const publicBase = process.env.S3_PUBLIC_URL || '';
+        const fileUrl = publicBase
+          ? `${publicBase}/${fileKey}`
+          : `${apiBasePath}/${encodeURIComponent(fileKey)}`;
 
-      return {
-        fileKey,
-        fileUrl,
-        sizeBytes: file.size,
-        mimeType: file.mimetype,
-      };
+        return {
+          fileKey,
+          fileUrl,
+          sizeBytes: file.size,
+          mimeType: file.mimetype,
+        };
+      } catch (s3Err: any) {
+        this.logger.warn(`Error al subir a S3 (${s3Err?.message || s3Err}). Guardando en disco local como respaldo.`);
+      }
     }
 
     // Almacenamiento local fallback
@@ -153,33 +157,56 @@ export class StorageService implements OnModuleInit {
    * Obtiene un flujo de lectura para streaming de un archivo desde S3 o disco local.
    */
   async getFileStream(fileKey: string): Promise<{ stream: Readable; mimeType?: string; length?: number }> {
-    if (this.s3Client && this.bucketName) {
-      const resp = await this.s3Client.send(
-        new GetObjectCommand({
-          Bucket: this.bucketName,
-          Key: fileKey,
-        }),
-      );
+    // 1. Revisar si está en almacenamiento local
+    const localBasename = path.basename(fileKey);
+    const targetPath = path.join(this.localStorageDir, localBasename);
+    if (fs.existsSync(targetPath)) {
+      const stat = await fs.promises.stat(targetPath);
+      const stream = fs.createReadStream(targetPath);
       return {
-        stream: resp.Body as Readable,
-        mimeType: resp.ContentType,
-        length: resp.ContentLength,
+        stream,
+        mimeType: this.getMimeTypeFromExtension(targetPath),
+        length: stat.size,
       };
     }
 
-    // Local file fallback
-    const localBasename = path.basename(fileKey);
-    const targetPath = path.join(this.localStorageDir, localBasename);
-    if (!fs.existsSync(targetPath)) {
-      throw new Error(`Archivo no encontrado: ${localBasename}`);
+    // 2. Revisar en S3 si está disponible
+    if (this.s3Client && this.bucketName) {
+      try {
+        const resp = await this.s3Client.send(
+          new GetObjectCommand({
+            Bucket: this.bucketName,
+            Key: fileKey,
+          }),
+        );
+        return {
+          stream: resp.Body as Readable,
+          mimeType: resp.ContentType,
+          length: resp.ContentLength,
+        };
+      } catch (s3Err: any) {
+        this.logger.warn(`No se pudo obtener archivo de S3 (${fileKey}): ${s3Err?.message || s3Err}`);
+      }
     }
 
-    const stat = await fs.promises.stat(targetPath);
-    const stream = fs.createReadStream(targetPath);
-    return {
-      stream,
-      length: stat.size,
-    };
+    throw new Error(`Archivo no encontrado: ${localBasename}`);
+  }
+
+  private getMimeTypeFromExtension(filePath: string): string {
+    const ext = path.extname(filePath).toLowerCase();
+    switch (ext) {
+      case '.jpg':
+      case '.jpeg':
+        return 'image/jpeg';
+      case '.png':
+        return 'image/png';
+      case '.webp':
+        return 'image/webp';
+      case '.pdf':
+        return 'application/pdf';
+      default:
+        return 'application/octet-stream';
+    }
   }
 
   /**
