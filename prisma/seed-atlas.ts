@@ -47,15 +47,15 @@ export async function seedAtlasCapital() {
   });
 
   const siigoConfig = {
-    siigoActive: true,
-    siigoApiUrl: (process.env.SIIGO_API_URL || 'https://api.siigo.com').trim(),
-    siigoUsername: (process.env.SIIGO_USERNAME || 'atlascapital.col@gmail.com').trim(),
-    siigoAccessKey: (process.env.SIIGO_ACCESS_KEY || 'OTczNDNmMGMtN2I4YS00NWVlLWE4MDEtYzliYzkxNzI2MjJmOmM0WGNjfnE1eEM=').trim(),
-    siigoPartnerId: (process.env.SIIGO_PARTNER_ID || 'AtlasCapital').trim(),
-    siigoDebitAccount: (process.env.SIIGO_DEBIT_ACCOUNT || '13309595').trim(),
-    siigoCreditAccount: (process.env.SIIGO_CREDIT_ACCOUNT || '11050501').trim(),
-    siigoRpDocumentId: process.env.SIIGO_RP_DOCUMENT_ID ? parseInt(process.env.SIIGO_RP_DOCUMENT_ID, 10) : 31163,
-    siigoCashPaymentId: process.env.SIIGO_CASH_PAYMENT_ID ? parseInt(process.env.SIIGO_CASH_PAYMENT_ID, 10) : 4375,
+    siigoActive: existingSetting?.siigoActive ?? true,
+    siigoApiUrl: existingSetting?.siigoApiUrl || 'https://api.siigo.com',
+    siigoUsername: existingSetting?.siigoUsername || 'atlascapital.col@gmail.com',
+    siigoAccessKey: existingSetting?.siigoAccessKey || 'OTczNDNmMGMtN2I4YS00NWVlLWE4MDEtYzliYzkxNzI2MjJmOmM0WGNjfnE1eEM=',
+    siigoPartnerId: existingSetting?.siigoPartnerId || 'AtlasCapital',
+    siigoDebitAccount: existingSetting?.siigoDebitAccount || '13309595',
+    siigoCreditAccount: existingSetting?.siigoCreditAccount || '11050501',
+    siigoRpDocumentId: existingSetting?.siigoRpDocumentId || 31163,
+    siigoCashPaymentId: existingSetting?.siigoCashPaymentId || 4375,
   };
 
   if (!existingSetting) {

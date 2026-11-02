@@ -79,25 +79,21 @@ export class SiigoService {
       });
     }
 
-    const apiUrl = (setting?.siigoApiUrl || process.env.SIIGO_API_URL || 'https://api.siigo.com').replace(/\/+$/, '');
-    const username = (setting?.siigoUsername || process.env.SIIGO_USERNAME || '').trim();
-    const accessKey = (setting?.siigoAccessKey || process.env.SIIGO_ACCESS_KEY || '').trim();
-    const partnerId = (setting?.siigoPartnerId || process.env.SIIGO_PARTNER_ID || 'aurumDashApp').trim();
+    const apiUrl = (setting?.siigoApiUrl || 'https://api.siigo.com').replace(/\/+$/, '');
+    const username = (setting?.siigoUsername || '').trim();
+    const accessKey = (setting?.siigoAccessKey || '').trim();
+    const partnerId = (setting?.siigoPartnerId || 'aurumDashApp').trim();
 
     const rpDocumentId = setting?.siigoRpDocumentId
       ? Number(setting.siigoRpDocumentId)
-      : process.env.SIIGO_RP_DOCUMENT_ID
-        ? parseInt(process.env.SIIGO_RP_DOCUMENT_ID, 10)
-        : 31163;
+      : 31163;
 
-    const debitAccountCode = (setting?.siigoDebitAccount || process.env.SIIGO_DEBIT_ACCOUNT || '13309595').trim();
-    const creditAccountCode = (setting?.siigoCreditAccount || process.env.SIIGO_CREDIT_ACCOUNT || '11050501').trim();
+    const debitAccountCode = (setting?.siigoDebitAccount || '13309595').trim();
+    const creditAccountCode = (setting?.siigoCreditAccount || '11050501').trim();
 
     const cashPaymentMethodId = setting?.siigoCashPaymentId
       ? Number(setting.siigoCashPaymentId)
-      : process.env.SIIGO_CASH_PAYMENT_ID
-        ? parseInt(process.env.SIIGO_CASH_PAYMENT_ID, 10)
-        : 4375;
+      : 4375;
 
     const active = setting?.siigoActive ?? true;
 
@@ -155,7 +151,7 @@ export class SiigoService {
     const config = await this.getCompanyConfig(companyId);
     if (!config.username || !config.accessKey) {
       throw new HttpException(
-        'Faltan las credenciales SIIGO_USERNAME o SIIGO_ACCESS_KEY en la configuración de la empresa o en el archivo .env.',
+        'Faltan las credenciales de Siigo Nube (Usuario o Access Key) en la configuración de la empresa (/configuracion -> Facturación Siigo).',
         HttpStatus.BAD_REQUEST,
       );
     }
@@ -449,7 +445,7 @@ export class SiigoService {
     if (!config.username || !config.accessKey) {
       return {
         success: false,
-        message: 'No se encontraron SIIGO_USERNAME o SIIGO_ACCESS_KEY configurados en los ajustes de la empresa ni en el archivo .env',
+        message: 'No se encontraron credenciales de Siigo Nube configuradas en los ajustes de la empresa (/configuracion -> Facturación Siigo).',
         authenticated: false,
         partnerId: config.partnerId,
       };
