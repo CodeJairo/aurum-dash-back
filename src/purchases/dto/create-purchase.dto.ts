@@ -1,6 +1,7 @@
 import { IsEnum, IsNumber, IsOptional, IsPositive, IsString, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 import { TransformMoney } from '../../common/transformers/money.transformer';
+import { PaymentAccount } from '@prisma/client';
 
 export enum PricingModeDto {
   PER_FINE_GRAM = 'PER_FINE_GRAM',
@@ -16,6 +17,20 @@ export class CreatePurchaseDto {
   @IsOptional()
   @IsEnum(PurchaseTypeDto)
   type?: PurchaseTypeDto = PurchaseTypeDto.ACCOUNTING;
+
+  @IsOptional()
+  @IsEnum(PaymentAccount)
+  paymentMethod?: PaymentAccount = PaymentAccount.CASH;
+
+  @IsOptional()
+  @IsNumber()
+  @TransformMoney()
+  cashAmount?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @TransformMoney()
+  bankAmount?: number;
 
   @IsOptional()
   @IsString()

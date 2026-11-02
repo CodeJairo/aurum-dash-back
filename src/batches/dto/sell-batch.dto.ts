@@ -1,12 +1,17 @@
-import { ArrayNotEmpty, IsArray, IsNumber, IsOptional, IsPositive, IsString } from 'class-validator';
+import { ArrayNotEmpty, IsArray, IsEnum, IsNumber, IsOptional, IsPositive, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
 import { TransformMoney } from '../../common/transformers/money.transformer';
+import { PaymentAccount } from '@prisma/client';
 
 export class SellBatchDto {
   @IsNumber()
   @IsPositive()
   @TransformMoney()
   grossSaleAmount: number;
+
+  @IsOptional()
+  @IsEnum(PaymentAccount)
+  destinationAccount?: PaymentAccount = PaymentAccount.BANK;
 
   @IsOptional()
   @IsNumber()

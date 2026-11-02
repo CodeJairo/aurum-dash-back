@@ -4,12 +4,16 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { CapitalService } from '../capital/capital.service';
 import { CreateMonthlySettlementDto } from './dto/create-monthly-settlement.dto';
-import { Prisma } from '@prisma/client';
+import { CapitalMovementType, ExpenseStatus, PaymentAccount, Prisma } from '@prisma/client';
 
 @Injectable()
 export class MonthlySettlementsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly capitalService: CapitalService,
+  ) {}
 
   private parseDateBoundaries(startDateStr: string, endDateStr: string) {
     const [sYear, sMonth, sDay] = startDateStr.slice(0, 10).split('-').map(Number);
@@ -72,6 +76,27 @@ export class MonthlySettlementsService {
       totalGrossGrams += Number(b.totalGrossGrams || 0);
     }
 
+    // Buscar gastos operativos registrados y pendientes en el rango de fechas
+    const pendingExpenses = await this.prisma.expense.findMany({
+      where: {
+        status: ExpenseStatus.PENDING,
+        expenseDate: {
+          gte: queryStart,
+          lte: queryEnd,
+        },
+      },
+      orderBy: { expenseDate: 'asc' },
+    });
+
+    let pendingExpensesTotal = 0;
+    for (const exp of pendingExpenses) {
+      pendingExpensesTotal += Number(exp.amount || 0);
+    }
+
+    const projectedNetProfit = Number(
+      Math.max(0, commercialProfit - pendingExpensesTotal).toFixed(2),
+    );
+
     return {
       period: {
         startDate: storeStart,
@@ -86,6 +111,8 @@ export class MonthlySettlementsService {
         totalNetSales: Number(totalNetSales.toFixed(2)),
         totalInvestmentCost: Number(totalInvestmentCost.toFixed(2)),
         commercialProfit: Number(commercialProfit.toFixed(2)),
+        pendingExpensesTotal: Number(pendingExpensesTotal.toFixed(2)),
+        projectedNetProfit,
       },
       batches: batches.map((b) => ({
         id: b.id,
@@ -99,6 +126,15 @@ export class MonthlySettlementsService {
         netSaleAmount: Number(b.netSaleAmount || 0),
         totalInvestment: Number(b.totalInvestment || 0),
         netProfit: Number(b.netProfit || 0),
+      })),
+      pendingExpenses: pendingExpenses.map((e) => ({
+        id: e.id,
+        description: e.description,
+        category: e.category,
+        amount: Number(e.amount),
+        paymentAccount: e.paymentAccount,
+        expenseDate: e.expenseDate,
+        receiptUrl: e.receiptUrl,
       })),
     };
   }
@@ -156,15 +192,45 @@ export class MonthlySettlementsService {
       commercialProfit += Number(b.netProfit || 0);
     }
 
-    // Calcular gastos generales ingresados por el usuario
-    const expensesList = dto.expenses || [];
-    let generalExpensesTotal = 0;
-    for (const exp of expensesList) {
-      generalExpensesTotal += Math.max(0, Number(exp.amount) || 0);
+    // Identificar gastos del módulo de gastos a incluir
+    let targetExpenseIds = dto.expenseIds;
+    if (!targetExpenseIds) {
+      const candidates = await this.prisma.expense.findMany({
+        where: {
+          status: ExpenseStatus.PENDING,
+          expenseDate: {
+            gte: queryStart,
+            lte: queryEnd,
+          },
+        },
+        select: { id: true },
+      });
+      targetExpenseIds = candidates.map((c) => c.id);
     }
 
-    // Utilidad Neta Real = Utilidad Comercial de Lotes - Gastos Generales
-    const netProfit = Number((commercialProfit - generalExpensesTotal).toFixed(2));
+    const registeredExpenses = await this.prisma.expense.findMany({
+      where: {
+        id: { in: targetExpenseIds },
+        status: ExpenseStatus.PENDING,
+      },
+    });
+
+    let registeredExpensesTotal = 0;
+    for (const exp of registeredExpenses) {
+      registeredExpensesTotal += Number(exp.amount || 0);
+    }
+
+    // Gastos manuales adicionales ingresados en el formulario de liquidación
+    const manualExpensesList = dto.expenses || [];
+    let manualExpensesTotal = 0;
+    for (const exp of manualExpensesList) {
+      manualExpensesTotal += Math.max(0, Number(exp.amount) || 0);
+    }
+
+    const generalExpensesTotal = Number((registeredExpensesTotal + manualExpensesTotal).toFixed(2));
+
+    // Utilidad Neta Real = Utilidad Comercial de Lotes - Gastos Generales (registrados + manuales)
+    const netProfit = Number(Math.max(0, commercialProfit - generalExpensesTotal).toFixed(2));
 
     const p1Name = dto.partner1Name?.trim() || 'Daniel Herrera';
     const p1Percent = dto.partner1Percent !== undefined ? Number(dto.partner1Percent) : 50.0;
@@ -173,6 +239,26 @@ export class MonthlySettlementsService {
     const p2Name = dto.partner2Name?.trim() || 'Andres Herrera';
     const p2Percent = dto.partner2Percent !== undefined ? Number(dto.partner2Percent) : 50.0;
     const p2Amount = Number(((netProfit * p2Percent) / 100).toFixed(2));
+
+    const payoutAccount = dto.payoutAccount || PaymentAccount.BANK;
+    let payoutCashAmount = dto.payoutCashAmount ? Number(dto.payoutCashAmount) : null;
+    let payoutBankAmount = dto.payoutBankAmount ? Number(dto.payoutBankAmount) : null;
+
+    if (payoutAccount === PaymentAccount.MIXED) {
+      const cashVal = payoutCashAmount || 0;
+      const bankVal = payoutBankAmount || 0;
+      if (cashVal + bankVal !== netProfit && cashVal > 0 && bankVal === 0) {
+        payoutBankAmount = Math.max(0, Number((netProfit - cashVal).toFixed(2)));
+      } else if (cashVal + bankVal !== netProfit && bankVal > 0 && cashVal === 0) {
+        payoutCashAmount = Math.max(0, Number((netProfit - bankVal).toFixed(2)));
+      }
+    } else if (payoutAccount === PaymentAccount.BANK) {
+      payoutBankAmount = netProfit;
+      payoutCashAmount = 0;
+    } else {
+      payoutCashAmount = netProfit;
+      payoutBankAmount = 0;
+    }
 
     // Validar si el usuario existe para evitar violación de FK si el token tiene un ID obsoleto
     let validCreatedById: string | null = null;
@@ -218,19 +304,33 @@ export class MonthlySettlementsService {
           partner2Name: p2Name,
           partner2Percent: new Prisma.Decimal(p2Percent.toFixed(2)),
           partner2Amount: new Prisma.Decimal(p2Amount.toFixed(2)),
+          payoutAccount,
+          payoutCashAmount: payoutCashAmount !== null ? new Prisma.Decimal(payoutCashAmount.toFixed(2)) : null,
+          payoutBankAmount: payoutBankAmount !== null ? new Prisma.Decimal(payoutBankAmount.toFixed(2)) : null,
           notes: dto.notes?.trim() || null,
           createdById: validCreatedById,
         },
       });
 
-      // Crear los gastos generales
-      if (expensesList.length > 0) {
+      // Crear los gastos manuales
+      if (manualExpensesList.length > 0) {
         await tx.monthlySettlementExpense.createMany({
-          data: expensesList.map((e) => ({
+          data: manualExpensesList.map((e) => ({
             monthlySettlementId: settlement.id,
             concept: e.concept.trim(),
             amount: new Prisma.Decimal(Number(e.amount).toFixed(2)),
           })),
+        });
+      }
+
+      // Marcar los gastos del módulo como liquidados y asociarlos a la liquidación
+      if (registeredExpenses.length > 0) {
+        await tx.expense.updateMany({
+          where: { id: { in: registeredExpenses.map((e) => e.id) } },
+          data: {
+            status: ExpenseStatus.LIQUIDATED,
+            monthlySettlementId: settlement.id,
+          },
         });
       }
 
@@ -242,10 +342,46 @@ export class MonthlySettlementsService {
         });
       }
 
+      // Descontar la utilidad repartida a socios del capital de trabajo para retornar al capital base
+      if (netProfit > 0) {
+        if (payoutAccount === PaymentAccount.MIXED) {
+          if (payoutCashAmount && payoutCashAmount > 0) {
+            await this.capitalService.recordSystemMovement(
+              CapitalMovementType.PARTNER_PROFIT_PAYOUT,
+              -payoutCashAmount,
+              `Distribución utilidades (Efectivo) liquidación ${code} (${p1Name}, ${p2Name})`,
+              PaymentAccount.CASH,
+              settlement.id,
+              tx,
+            );
+          }
+          if (payoutBankAmount && payoutBankAmount > 0) {
+            await this.capitalService.recordSystemMovement(
+              CapitalMovementType.PARTNER_PROFIT_PAYOUT,
+              -payoutBankAmount,
+              `Distribución utilidades (Banco) liquidación ${code} (${p1Name}, ${p2Name})`,
+              PaymentAccount.BANK,
+              settlement.id,
+              tx,
+            );
+          }
+        } else {
+          await this.capitalService.recordSystemMovement(
+            CapitalMovementType.PARTNER_PROFIT_PAYOUT,
+            -netProfit,
+            `Distribución utilidades liquidación ${code} (${p1Name}, ${p2Name})`,
+            payoutAccount,
+            settlement.id,
+            tx,
+          );
+        }
+      }
+
       return tx.monthlySettlement.findUnique({
         where: { id: settlement.id },
         include: {
           expenses: true,
+          registeredExpenses: true,
           batches: {
             select: {
               id: true,
@@ -271,8 +407,9 @@ export class MonthlySettlementsService {
       orderBy: { settlementDate: 'desc' },
       include: {
         expenses: true,
+        registeredExpenses: true,
         _count: {
-          select: { batches: true },
+          select: { batches: true, registeredExpenses: true },
         },
       },
     });
@@ -283,6 +420,7 @@ export class MonthlySettlementsService {
       where: { id },
       include: {
         expenses: { orderBy: { createdAt: 'asc' } },
+        registeredExpenses: { orderBy: { expenseDate: 'asc' } },
         batches: {
           orderBy: { soldAt: 'asc' },
           select: {
@@ -314,20 +452,68 @@ export class MonthlySettlementsService {
 
   async remove(id: string) {
     const settlement = await this.findOne(id);
+    const netProfit = Number(settlement.netProfit || 0);
+    const payoutAccount = settlement.payoutAccount;
 
     return this.prisma.$transaction(async (tx) => {
-      // Desvincular lotes para que puedan ser reliquidados
+      // 1. Si se repartieron utilidades, devolverlas al capital para que vuelvan a quedar en la bolsa retenida
+      if (netProfit > 0) {
+        if (payoutAccount === PaymentAccount.MIXED) {
+          const cashVal = Number(settlement.payoutCashAmount || 0);
+          const bankVal = Number(settlement.payoutBankAmount || 0);
+          if (cashVal > 0) {
+            await this.capitalService.recordSystemMovement(
+              CapitalMovementType.MANUAL_ADJUSTMENT,
+              cashVal,
+              `Reintegro de utilidades por anulación de liquidación ${settlement.code} (Efectivo)`,
+              PaymentAccount.CASH,
+              settlement.id,
+              tx,
+            );
+          }
+          if (bankVal > 0) {
+            await this.capitalService.recordSystemMovement(
+              CapitalMovementType.MANUAL_ADJUSTMENT,
+              bankVal,
+              `Reintegro de utilidades por anulación de liquidación ${settlement.code} (Banco)`,
+              PaymentAccount.BANK,
+              settlement.id,
+              tx,
+            );
+          }
+        } else {
+          await this.capitalService.recordSystemMovement(
+            CapitalMovementType.MANUAL_ADJUSTMENT,
+            netProfit,
+            `Reintegro de utilidades por anulación de liquidación ${settlement.code}`,
+            payoutAccount,
+            settlement.id,
+            tx,
+          );
+        }
+      }
+
+      // 2. Liberar gastos registrados para que queden PENDING nuevamente
+      await tx.expense.updateMany({
+        where: { monthlySettlementId: id },
+        data: {
+          status: ExpenseStatus.PENDING,
+          monthlySettlementId: null,
+        },
+      });
+
+      // 3. Desvincular lotes para que puedan ser reliquidados
       await tx.batch.updateMany({
         where: { monthlySettlementId: id },
         data: { monthlySettlementId: null },
       });
 
-      // Eliminar gastos y liquidación (cascada)
+      // 4. Eliminar gastos manuales y liquidación (cascada)
       await tx.monthlySettlement.delete({
         where: { id },
       });
 
-      return { message: `Liquidación ${settlement.code} eliminada exitosamente. Lotes liberados.`, id };
+      return { message: `Liquidación ${settlement.code} eliminada exitosamente. Lotes y gastos liberados.`, id };
     });
   }
 }

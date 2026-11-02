@@ -34,12 +34,27 @@ enum FormalizerStatus {
   USED
 }
 
+enum PaymentAccount {
+  CASH
+  BANK
+  MIXED
+  INTERNAL_TRANSFER
+}
+
+enum ExpenseStatus {
+  PENDING
+  LIQUIDATED
+}
+
 enum CapitalMovementType {
   PURCHASE_PAYMENT
   BATCH_SALE_INCOME
   CAPITAL_INJECTION
   CAPITAL_WITHDRAWAL
   MANUAL_ADJUSTMENT
+  INTERNAL_TRANSFER
+  EXPENSE_PAYMENT
+  PARTNER_PROFIT_PAYOUT
 }
 
 enum ExpenseCategory {
@@ -181,6 +196,11 @@ model Purchase {
   vendorPhotoUrl     String?
   vendorPhotoKey     String?
 
+  // Forma y origen de pago de la compra
+  paymentMethod      PaymentAccount @default(CASH)
+  cashAmount         Decimal?       @db.Decimal(14, 2)
+  bankAmount         Decimal?       @db.Decimal(14, 2)
+
   createdById  String?
   createdBy    User?        @relation(fields: [createdById], references: [id])
 
@@ -202,6 +222,8 @@ model SystemSetting {
   lastConsecutiveNum  Int      @default(0)
   lastPurchaseNum     Int      @default(0)
   currentCapital      Decimal  @default(0.00) @db.Decimal(14, 2)
+  cashCapital         Decimal  @default(0.00) @db.Decimal(14, 2)
+  bankCapital         Decimal  @default(0.00) @db.Decimal(14, 2)
   updatedAt           DateTime @updatedAt
 
   @@map("system_settings")
@@ -253,6 +275,9 @@ model CapitalMovement {
   balanceAfter  Decimal             @db.Decimal(14, 2)
   description   String
   referenceId   String?
+  account       PaymentAccount      @default(CASH)
+  sourceAccount PaymentAccount?
+  targetAccount PaymentAccount?
   createdAt     DateTime            @default(now())
 
   @@map("capital_movements")
@@ -267,6 +292,7 @@ model Sale {
   fineGrams    Decimal?     @db.Decimal(12, 4)
   pricePerGram Decimal?     @db.Decimal(14, 2)
   totalAmount  Decimal      @db.Decimal(14, 2)
+  destinationAccount PaymentAccount @default(BANK)
 
   saleDate     DateTime     @default(now())
 
@@ -291,6 +317,15 @@ model Expense {
 
   batchId      String?
   batch        Batch?          @relation(fields: [batchId], references: [id], onDelete: SetNull)
+
+  // Información de pago y comprobante
+  paymentAccount PaymentAccount @default(CASH)
+  receiptUrl     String?
+  receiptKey     String?
+  status         ExpenseStatus  @default(PENDING)
+
+  monthlySettlementId String?
+  monthlySettlement   MonthlySettlement? @relation("MonthlySettlementPeriodExpenses", fields: [monthlySettlementId], references: [id], onDelete: SetNull)
 
   createdById  String?
   createdBy    User?           @relation(fields: [createdById], references: [id])
@@ -355,6 +390,11 @@ model MonthlySettlement {
   partner2Percent       Decimal                    @default(50.00) @db.Decimal(5, 2)
   partner2Amount        Decimal                    @default(0.00) @db.Decimal(14, 2)
 
+  // Salida de utilidades repartidas a socios
+  payoutAccount         PaymentAccount             @default(BANK)
+  payoutCashAmount      Decimal?                   @db.Decimal(14, 2)
+  payoutBankAmount      Decimal?                   @db.Decimal(14, 2)
+
   notes                 String?
 
   createdById           String?
@@ -364,6 +404,7 @@ model MonthlySettlement {
   updatedAt             DateTime                   @updatedAt
 
   expenses              MonthlySettlementExpense[]
+  registeredExpenses    Expense[]                  @relation("MonthlySettlementPeriodExpenses")
   batches               Batch[]                    @relation("MonthlySettlementBatches")
 
   @@map("monthly_settlements")

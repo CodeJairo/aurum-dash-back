@@ -1,5 +1,6 @@
 import { IsEnum, IsNumber, IsOptional, IsPositive, IsString } from 'class-validator';
 import { TransformMoney } from '../../common/transformers/money.transformer';
+import { PaymentAccount } from '@prisma/client';
 
 export enum CapitalActionDto {
   INJECTION = 'CAPITAL_INJECTION',
@@ -20,6 +21,27 @@ export class CreateCapitalMovementDto {
   description: string;
 
   @IsOptional()
+  @IsEnum(PaymentAccount)
+  account?: PaymentAccount = PaymentAccount.CASH;
+
+  @IsOptional()
   @IsString()
   referenceId?: string;
+}
+
+export class TransferCapitalDto {
+  @TransformMoney()
+  @IsNumber()
+  @IsPositive()
+  amount: number;
+
+  @IsEnum(PaymentAccount)
+  fromAccount: PaymentAccount;
+
+  @IsEnum(PaymentAccount)
+  toAccount: PaymentAccount;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
 }

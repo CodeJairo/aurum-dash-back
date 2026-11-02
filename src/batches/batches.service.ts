@@ -11,7 +11,7 @@ import { CreateBatchDto } from './dto/create-batch.dto';
 import { UnifyPurchasesDto } from './dto/unify-purchases.dto';
 import { UpdateBatchDto } from './dto/update-batch.dto';
 import { SellBatchDto } from './dto/sell-batch.dto';
-import { CapitalMovementType, Prisma } from '@prisma/client';
+import { CapitalMovementType, PaymentAccount, Prisma } from '@prisma/client';
 
 @Injectable()
 export class BatchesService {
@@ -345,6 +345,8 @@ export class BatchesService {
         },
       });
 
+      const destinationAccount = dto.destinationAccount || PaymentAccount.BANK;
+
       // 3. Registrar venta en tabla de ventas
       await tx.sale.create({
         data: {
@@ -354,19 +356,20 @@ export class BatchesService {
           fineGrams: new Prisma.Decimal(finalFineGrams.toFixed(4)),
           pricePerGram: dto.salePricePerGram ? new Prisma.Decimal(Number(dto.salePricePerGram).toFixed(2)) : null,
           totalAmount: new Prisma.Decimal(grossSale.toFixed(2)),
+          destinationAccount,
           saleDate: dto.soldDate ? new Date(`${dto.soldDate.slice(0, 10)}T12:00:00`) : new Date(),
           batchId: batch.id,
         },
       });
 
-      // 4. Reintegrar únicamente el capital invertido a la Cartera de Capital de Trabajo
-      // La utilidad neta generada no se mezcla en el capital rotatorio; queda en la bolsa de utilidades del periodo
-      const capitalReplenishment = Math.max(0, Math.min(totalInvestment, netSale));
-      if (capitalReplenishment > 0) {
+      // 4. Ingresar la venta neta completa (capital invertido + utilidad) a la Cartera de Capital de Trabajo seleccionada
+      // La utilidad queda retenida en el capital rotatorio hasta que se realice la liquidación del periodo
+      if (netSale > 0) {
         await this.capitalService.recordSystemMovement(
           CapitalMovementType.BATCH_SALE_INCOME,
-          capitalReplenishment,
-          `Reintegro de capital invertido lote ${batch.code}`,
+          netSale,
+          `Ingreso venta neta lote ${batch.code} (${destinationAccount === PaymentAccount.BANK ? 'Banco' : 'Efectivo'})`,
+          destinationAccount,
           batch.id,
           tx,
         );

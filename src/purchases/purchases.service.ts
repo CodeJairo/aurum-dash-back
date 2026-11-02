@@ -7,7 +7,7 @@ import { CapitalService } from '../capital/capital.service';
 import { StorageService } from '../storage/storage.service';
 import { CreatePurchaseDto, PricingModeDto, PurchaseTypeDto } from './dto/create-purchase.dto';
 import { UpdatePurchaseDto } from './dto/update-purchase.dto';
-import { CapitalMovementType, Prisma, Role } from '@prisma/client';
+import { CapitalMovementType, PaymentAccount, Prisma, Role } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -203,6 +203,24 @@ export class PurchasesService {
         consecutive = String(nextNum);
       }
 
+      const paymentMethod = dto.paymentMethod || PaymentAccount.CASH;
+      let cashAmountVal: number | null = null;
+      let bankAmountVal: number | null = null;
+
+      if (paymentMethod === PaymentAccount.MIXED) {
+        cashAmountVal = Number(dto.cashAmount) || 0;
+        bankAmountVal = Number(dto.bankAmount) || 0;
+        if (cashAmountVal + bankAmountVal !== totalCost && cashAmountVal > 0 && bankAmountVal === 0) {
+          bankAmountVal = Math.max(0, Number((totalCost - cashAmountVal).toFixed(2)));
+        } else if (cashAmountVal + bankAmountVal !== totalCost && bankAmountVal > 0 && cashAmountVal === 0) {
+          cashAmountVal = Math.max(0, Number((totalCost - bankAmountVal).toFixed(2)));
+        }
+      } else if (paymentMethod === PaymentAccount.BANK) {
+        bankAmountVal = totalCost;
+      } else {
+        cashAmountVal = totalCost;
+      }
+
       const purchase = await tx.purchase.create({
         data: {
           type: 'ACCOUNTING',
@@ -216,6 +234,9 @@ export class PurchasesService {
           pricePerGram: new Prisma.Decimal(pricePerGram.toFixed(2)),
           pricingMode: pricingMode as any,
           totalCost: new Prisma.Decimal(totalCost.toFixed(2)),
+          paymentMethod,
+          cashAmount: cashAmountVal !== null ? new Prisma.Decimal(cashAmountVal.toFixed(2)) : null,
+          bankAmount: bankAmountVal !== null ? new Prisma.Decimal(bankAmountVal.toFixed(2)) : null,
           batchId: dto.batchId ?? null,
           purchaseDate: dto.purchaseDate ? new Date(`${dto.purchaseDate.slice(0, 10)}T12:00:00`) : new Date(),
           deliveryDate: dto.deliveryDate ? new Date(`${dto.deliveryDate.slice(0, 10)}T12:00:00`) : new Date(),
@@ -228,13 +249,37 @@ export class PurchasesService {
       });
 
       // Registrar descuento del capital de cartera
-      await this.capitalService.recordSystemMovement(
-        CapitalMovementType.PURCHASE_PAYMENT,
-        -totalCost,
-        `Pago compra Nº ${consecutive} - ${dto.supplier || 'Cliente'}`,
-        purchase.id,
-        tx,
-      );
+      if (paymentMethod === PaymentAccount.MIXED) {
+        if (cashAmountVal && cashAmountVal > 0) {
+          await this.capitalService.recordSystemMovement(
+            CapitalMovementType.PURCHASE_PAYMENT,
+            -cashAmountVal,
+            `Pago (Efectivo) compra Nº ${consecutive} - ${dto.supplier || 'Cliente'}`,
+            PaymentAccount.CASH,
+            purchase.id,
+            tx,
+          );
+        }
+        if (bankAmountVal && bankAmountVal > 0) {
+          await this.capitalService.recordSystemMovement(
+            CapitalMovementType.PURCHASE_PAYMENT,
+            -bankAmountVal,
+            `Pago (Banco) compra Nº ${consecutive} - ${dto.supplier || 'Cliente'}`,
+            PaymentAccount.BANK,
+            purchase.id,
+            tx,
+          );
+        }
+      } else {
+        await this.capitalService.recordSystemMovement(
+          CapitalMovementType.PURCHASE_PAYMENT,
+          -totalCost,
+          `Pago compra Nº ${consecutive} - ${dto.supplier || 'Cliente'}`,
+          paymentMethod,
+          purchase.id,
+          tx,
+        );
+      }
 
       if (dto.batchId) {
         await this.recalculateBatch(dto.batchId, tx);
@@ -621,13 +666,40 @@ export class PurchasesService {
 
       // 2. Revertir / Reintegrar el capital en cartera solo si era compra contable normal
       if (existing.type === 'ACCOUNTING' && totalCost > 0) {
-        await this.capitalService.recordSystemMovement(
-          CapitalMovementType.MANUAL_ADJUSTMENT,
-          totalCost,
-          `Reintegro por eliminación de compra ${existing.consecutive || ''} - ${existing.supplier || 'Proveedor'}`,
-          existing.id,
-          tx,
-        );
+        const method = existing.paymentMethod || PaymentAccount.CASH;
+        if (method === PaymentAccount.MIXED) {
+          const cashPortion = Number(existing.cashAmount || 0);
+          const bankPortion = Number(existing.bankAmount || 0);
+          if (cashPortion > 0) {
+            await this.capitalService.recordSystemMovement(
+              CapitalMovementType.MANUAL_ADJUSTMENT,
+              cashPortion,
+              `Reintegro (Efectivo) por eliminación de compra ${existing.consecutive || ''} - ${existing.supplier || 'Proveedor'}`,
+              PaymentAccount.CASH,
+              existing.id,
+              tx,
+            );
+          }
+          if (bankPortion > 0) {
+            await this.capitalService.recordSystemMovement(
+              CapitalMovementType.MANUAL_ADJUSTMENT,
+              bankPortion,
+              `Reintegro (Banco) por eliminación de compra ${existing.consecutive || ''} - ${existing.supplier || 'Proveedor'}`,
+              PaymentAccount.BANK,
+              existing.id,
+              tx,
+            );
+          }
+        } else {
+          await this.capitalService.recordSystemMovement(
+            CapitalMovementType.MANUAL_ADJUSTMENT,
+            totalCost,
+            `Reintegro por eliminación de compra ${existing.consecutive || ''} - ${existing.supplier || 'Proveedor'}`,
+            method,
+            existing.id,
+            tx,
+          );
+        }
       }
 
       // 3. Recalcular el lote si estaba asignado a uno

@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { FormalizersService } from '../formalizers/formalizers.service';
 import { CapitalService } from '../capital/capital.service';
+import { StorageService } from '../storage/storage.service';
 import { ConflictException } from '@nestjs/common';
 import { PurchaseTypeDto } from './dto/create-purchase.dto';
 
@@ -57,6 +58,12 @@ describe('PurchasesService - Consecutivos y Unicidad', () => {
       upsertFromBarequero: jest.fn().mockResolvedValue({} as any),
     };
 
+    const storageService = {
+      uploadFile: jest.fn(),
+      deleteFile: jest.fn(),
+      getFileStream: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PurchasesService,
@@ -64,6 +71,7 @@ describe('PurchasesService - Consecutivos y Unicidad', () => {
         { provide: SettingsService, useValue: settingsService },
         { provide: CapitalService, useValue: capitalService },
         { provide: FormalizersService, useValue: formalizersService },
+        { provide: StorageService, useValue: storageService },
       ],
     }).compile();
 
@@ -95,7 +103,8 @@ describe('PurchasesService - Consecutivos y Unicidad', () => {
       batchId: null,
       batch: null,
       supplier: 'Juan',
-      type: 'FORMAL',
+      type: 'ACCOUNTING',
+      paymentMethod: 'CASH',
     };
     prisma.purchase.findUnique.mockResolvedValue(mockPurchase);
     prisma.purchase.delete.mockResolvedValue(mockPurchase);
@@ -107,6 +116,7 @@ describe('PurchasesService - Consecutivos y Unicidad', () => {
       expect.anything(),
       2500000,
       expect.stringContaining('DH-100'),
+      'CASH',
       'p-1',
       expect.anything(),
     );

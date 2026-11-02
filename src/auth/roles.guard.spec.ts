@@ -31,14 +31,20 @@ describe('RolesGuard', () => {
   });
 
   it('should allow access for Daniel (Role.ADMIN) on admin-protected route', () => {
-    jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue([Role.ADMIN]);
+    jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
+      if (key === 'isPublic') return false;
+      return [Role.ADMIN];
+    });
     const context = createMockContext({ username: 'daniel', role: Role.ADMIN });
 
     expect(guard.canActivate(context)).toBe(true);
   });
 
   it('should throw ForbiddenException for Andrés (Role.VIEWER) on admin-protected route', () => {
-    jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue([Role.ADMIN]);
+    jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
+      if (key === 'isPublic') return false;
+      return [Role.ADMIN];
+    });
     const context = createMockContext({ username: 'andres', role: Role.VIEWER });
 
     expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
@@ -48,7 +54,10 @@ describe('RolesGuard', () => {
   });
 
   it('should throw ForbiddenException if user is missing', () => {
-    jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue([Role.ADMIN]);
+    jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
+      if (key === 'isPublic') return false;
+      return [Role.ADMIN];
+    });
     const context = createMockContext(null);
 
     expect(() => guard.canActivate(context)).toThrow(ForbiddenException);

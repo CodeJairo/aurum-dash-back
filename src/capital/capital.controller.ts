@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { CapitalService } from './capital.service';
-import { CreateCapitalMovementDto } from './dto/create-capital-movement.dto';
+import { CreateCapitalMovementDto, TransferCapitalDto } from './dto/create-capital-movement.dto';
 import { AuthGuard } from '../auth/auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -26,5 +26,11 @@ export class CapitalController {
   @Roles(Role.ADMIN)
   createManualMovement(@Body() dto: CreateCapitalMovementDto) {
     return this.capitalService.createManualMovement(dto);
+  }
+
+  @Post('transfer')
+  @Roles(Role.ADMIN)
+  transferInternal(@Body() dto: TransferCapitalDto) {
+    return this.capitalService.transferInternal(dto);
   }
 }

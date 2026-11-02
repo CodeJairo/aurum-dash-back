@@ -1,6 +1,7 @@
 import {
   IsArray,
   IsDateString,
+  IsEnum,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -8,6 +9,8 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { PaymentAccount } from '@prisma/client';
+import { TransformMoney } from '../../common/transformers/money.transformer';
 
 export class SettlementExpenseItemDto {
   @IsString()
@@ -33,10 +36,29 @@ export class CreateMonthlySettlementDto {
   batchIds?: string[];
 
   @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  expenseIds?: string[];
+
+  @IsArray()
   @ValidateNested({ each: true })
   @Type(() => SettlementExpenseItemDto)
   @IsOptional()
   expenses?: SettlementExpenseItemDto[];
+
+  @IsOptional()
+  @IsEnum(PaymentAccount)
+  payoutAccount?: PaymentAccount = PaymentAccount.BANK;
+
+  @IsOptional()
+  @IsNumber()
+  @TransformMoney()
+  payoutCashAmount?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @TransformMoney()
+  payoutBankAmount?: number;
 
   @IsString()
   @IsOptional()
