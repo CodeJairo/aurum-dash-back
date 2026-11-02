@@ -3,102 +3,239 @@ const bcrypt = require('bcryptjs');
 
 const prisma = new PrismaClient();
 
+async function seedSuperAdmin() {
+  console.log('⚡ [Seed] Inicializando / Sincronizando Super Administrador...');
+
+  const username = (process.env.SUPERADMIN_USERNAME || 'superadmin').trim().toLowerCase();
+  const email = (process.env.SUPERADMIN_EMAIL || 'admin@aurumdash.com').trim().toLowerCase();
+  const name = process.env.SUPERADMIN_NAME || 'Super Administrador';
+  const rawPass = process.env.SUPERADMIN_PASSWORD || 'superadminpassword123';
+  const hashedPassword = bcrypt.hashSync(rawPass, 10);
+
+  const existingSuperAdmin = await prisma.user.findFirst({
+    where: {
+      OR: [
+        { role: Role.SUPER_ADMIN },
+        { username },
+        { email },
+      ],
+    },
+  });
+
+  if (existingSuperAdmin) {
+    const updated = await prisma.user.update({
+      where: { id: existingSuperAdmin.id },
+      data: {
+        username,
+        email,
+        name,
+        password: hashedPassword,
+        role: Role.SUPER_ADMIN,
+        companyId: null,
+        isActive: true,
+      },
+    });
+    console.log(`✓ Super Administrador actualizado: @${updated.username} (${updated.email})`);
+    return updated;
+  } else {
+    const created = await prisma.user.create({
+      data: {
+        username,
+        email,
+        name,
+        password: hashedPassword,
+        role: Role.SUPER_ADMIN,
+        companyId: null,
+        profitSharePercent: 0,
+        isActive: true,
+      },
+    });
+    console.log(`✓ Super Administrador creado exitosamente: @${created.username} (${created.email})`);
+    return created;
+  }
+}
+
+async function seedAtlasCapital() {
+  console.log('⚡ [Seed] Inicializando / Sincronizando Compraventa Atlas Capital...');
+
+  // 1. Asegurar la Empresa "Atlas Capital"
+  let company = await prisma.company.findFirst({
+    where: {
+      OR: [
+        { slug: 'atlas-capital' },
+        { name: 'Atlas Capital' },
+      ],
+    },
+  });
+
+  if (!company) {
+    company = await prisma.company.create({
+      data: {
+        name: 'Atlas Capital',
+        slug: 'atlas-capital',
+        nit: '123456789-1',
+        phone: '3001231122',
+        address: 'CR 8 CL 30 8 07',
+        city: 'Quibdó, Chocó',
+        isActive: true,
+      },
+    });
+    console.log(`✓ Empresa creada: ${company.name} [ID: ${company.id}]`);
+  } else {
+    company = await prisma.company.update({
+      where: { id: company.id },
+      data: {
+        name: 'Atlas Capital',
+        slug: 'atlas-capital',
+        isActive: true,
+      },
+    });
+    console.log(`✓ Empresa Atlas Capital verificada [ID: ${company.id}]`);
+  }
+
+  // 2. Asegurar SystemSetting con configuración de Siigo vinculada a company
+  const existingSetting = await prisma.systemSetting.findFirst({
+    where: { companyId: company.id },
+  });
+
+  const siigoConfig = {
+    siigoActive: existingSetting?.siigoActive ?? true,
+    siigoApiUrl: existingSetting?.siigoApiUrl || 'https://api.siigo.com',
+    siigoUsername: existingSetting?.siigoUsername || 'atlascapital.col@gmail.com',
+    siigoAccessKey: existingSetting?.siigoAccessKey || 'OTczNDNmMGMtN2I4YS00NWVlLWE4MDEtYzliYzkxNzI2MjJmOmM0WGNjfnE1eEM=',
+    siigoPartnerId: existingSetting?.siigoPartnerId || 'AtlasCapital',
+    siigoDebitAccount: existingSetting?.siigoDebitAccount || '13309595',
+    siigoCreditAccount: existingSetting?.siigoCreditAccount || '11050501',
+    siigoRpDocumentId: existingSetting?.siigoRpDocumentId || 31163,
+    siigoCashPaymentId: existingSetting?.siigoCashPaymentId || 4375,
+  };
+
+  if (!existingSetting) {
+    await prisma.systemSetting.create({
+      data: {
+        companyId: company.id,
+        legalName: 'DANIEL CAMILO HERRERA RENTERIA',
+        document: '1.078.000.069',
+        address: 'CR 8 CL 30 8 07',
+        phone: '3001231122',
+        city: 'Quibdó',
+        country: 'Colombia',
+        consecutivePrefix: 'DH-',
+        ...siigoConfig,
+      },
+    });
+    console.log('✓ Ajustes comerciales y de Siigo creados para Atlas Capital');
+  } else {
+    await prisma.systemSetting.update({
+      where: { id: existingSetting.id },
+      data: {
+        legalName: 'DANIEL CAMILO HERRERA RENTERIA',
+        document: '1.078.000.069',
+        consecutivePrefix: existingSetting.consecutivePrefix || 'DH-',
+        ...siigoConfig,
+      },
+    });
+    console.log('✓ Ajustes comerciales y de Siigo sincronizados para Atlas Capital');
+  }
+
+  // 3. Colaboradores Oficiales: Daniel (ADMIN) y Andrés (VIEWER)
+  const danielPass = process.env.DANIEL_PASSWORD || 'password123';
+  const andresPass = process.env.ANDRES_PASSWORD || 'password123';
+
+  const danielHash = bcrypt.hashSync(danielPass, 10);
+  const andresHash = bcrypt.hashSync(andresPass, 10);
+
+  // Daniel Herrera - Administrador
+  const existingDaniel = await prisma.user.findFirst({
+    where: {
+      OR: [
+        { username: 'daniel' },
+        { username: 'daniel2026' },
+        { email: 'daniel@aurumdash.com' },
+      ],
+    },
+  });
+
+  if (existingDaniel) {
+    await prisma.user.update({
+      where: { id: existingDaniel.id },
+      data: {
+        companyId: company.id,
+        username: 'daniel',
+        name: 'Daniel Camilo Herrera Renteria',
+        email: 'daniel@aurumdash.com',
+        role: Role.ADMIN,
+        password: danielHash,
+        profitSharePercent: 50.0,
+        isActive: true,
+      },
+    });
+    console.log('✓ Usuario Daniel Herrera actualizado [ADMIN]');
+  } else {
+    await prisma.user.create({
+      data: {
+        companyId: company.id,
+        username: 'daniel',
+        name: 'Daniel Camilo Herrera Renteria',
+        email: 'daniel@aurumdash.com',
+        role: Role.ADMIN,
+        password: danielHash,
+        profitSharePercent: 50.0,
+        isActive: true,
+      },
+    });
+    console.log('✓ Usuario Daniel Herrera creado [ADMIN]');
+  }
+
+  // Andrés Herrera - Observador (Solo Lectura)
+  const existingAndres = await prisma.user.findFirst({
+    where: {
+      OR: [
+        { username: 'andres' },
+        { email: 'andres@aurumdash.com' },
+      ],
+    },
+  });
+
+  if (existingAndres) {
+    await prisma.user.update({
+      where: { id: existingAndres.id },
+      data: {
+        companyId: company.id,
+        username: 'andres',
+        name: 'Andres Felipe Herrera',
+        email: 'andres@aurumdash.com',
+        role: Role.VIEWER,
+        password: andresHash,
+        profitSharePercent: 50.0,
+        isActive: true,
+      },
+    });
+    console.log('✓ Usuario Andrés Herrera actualizado [VIEWER]');
+  } else {
+    await prisma.user.create({
+      data: {
+        companyId: company.id,
+        username: 'andres',
+        name: 'Andres Felipe Herrera',
+        email: 'andres@aurumdash.com',
+        role: Role.VIEWER,
+        password: andresHash,
+        profitSharePercent: 50.0,
+        isActive: true,
+      },
+    });
+    console.log('✓ Usuario Andrés Herrera creado [VIEWER]');
+  }
+
+  console.log('✓ Seed de Atlas Capital completado con éxito.');
+}
+
 async function main() {
-  console.log('🌱 Inicializando cuentas de usuarios (Daniel, Andrés y Operador)...');
-
-  const defaultHashedPassword = bcrypt.hashSync('password123', 10);
-
-  // 1. Daniel - Administrador con Control Total
-  const daniel = await prisma.user.upsert({
-    where: { email: 'daniel@aurumdash.com' },
-    update: {
-      username: 'daniel',
-      name: 'Daniel',
-      password: defaultHashedPassword,
-      role: Role.ADMIN,
-      profitSharePercent: 50.0,
-      isActive: true,
-    },
-    create: {
-      username: 'daniel',
-      email: 'daniel@aurumdash.com',
-      name: 'Daniel',
-      password: defaultHashedPassword,
-      role: Role.ADMIN,
-      profitSharePercent: 50.0,
-      isActive: true,
-    },
-  });
-
-  // 2. Andrés - Auditor / Solo Lectura (Consulta Contable)
-  const andres = await prisma.user.upsert({
-    where: { email: 'andres@aurumdash.com' },
-    update: {
-      username: 'andres',
-      name: 'Andres',
-      password: defaultHashedPassword,
-      role: Role.VIEWER,
-      profitSharePercent: 50.0,
-      isActive: true,
-    },
-    create: {
-      username: 'andres',
-      email: 'andres@aurumdash.com',
-      name: 'Andres',
-      password: defaultHashedPassword,
-      role: Role.VIEWER,
-      profitSharePercent: 50.0,
-      isActive: true,
-    },
-  });
-
-  // 3. Operador - Auxiliar de Compras a Barequeros
-  const operador = await prisma.user.upsert({
-    where: { email: 'operador@aurumdash.com' },
-    update: {
-      username: 'operador',
-      name: 'Operador Barequeros',
-      password: defaultHashedPassword,
-      role: Role.BAREQUERO_OPERATOR || 'BAREQUERO_OPERATOR',
-      profitSharePercent: 0,
-      isActive: true,
-    },
-    create: {
-      username: 'operador',
-      email: 'operador@aurumdash.com',
-      name: 'Operador Barequeros',
-      password: defaultHashedPassword,
-      role: Role.BAREQUERO_OPERATOR || 'BAREQUERO_OPERATOR',
-      profitSharePercent: 0,
-      isActive: true,
-    },
-  });
-
-  // 4. Ajustes Institucionales (Atlas Capital)
-  await prisma.systemSetting.upsert({
-    where: { id: 'company_profile' },
-    update: {
-      legalName: 'DANIEL CAMILO HERRERA RENTERIA',
-      document: '1.078.000.069',
-      address: 'CR 8 CL 30 8 07',
-      city: 'Quibdó',
-      country: 'Colombia',
-      consecutivePrefix: 'DH-',
-    },
-    create: {
-      id: 'company_profile',
-      legalName: 'DANIEL CAMILO HERRERA RENTERIA',
-      document: '1.078.000.069',
-      address: 'CR 8 CL 30 8 07',
-      city: 'Quibdó',
-      country: 'Colombia',
-      consecutivePrefix: 'DH-',
-    },
-  });
-
-  console.log(`✓ Cuenta de Daniel lista: ${daniel.username} (${daniel.email}) [ADMIN]`);
-  console.log(`✓ Cuenta de Andrés lista: ${andres.username} (${andres.email}) [VIEWER]`);
-  console.log(`✓ Cuenta de Operador lista: ${operador.username} (${operador.email}) [OPERADOR]`);
+  console.log('🚀 Iniciando proceso maestro de semillas (Seeds) de AurumDash...');
+  await seedSuperAdmin();
+  await seedAtlasCapital();
+  console.log('🎉 Todos los seeds se completaron exitosamente.');
 }
 
 main()
