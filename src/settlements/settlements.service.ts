@@ -11,9 +11,9 @@ import { Prisma } from '@prisma/client';
 export class SettlementsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async simulate(batchId: string) {
-    const batch = await this.prisma.batch.findUnique({
-      where: { id: batchId },
+  async simulate(companyId: string, batchId: string) {
+    const batch = await this.prisma.batch.findFirst({
+      where: { id: batchId, companyId },
       include: {
         purchases: {
           select: { id: true, grossGrams: true, fineGrams: true, totalCost: true },
@@ -88,9 +88,9 @@ export class SettlementsService {
     };
   }
 
-  async closeBatch(dto: CloseBatchDto) {
-    const batch = await this.prisma.batch.findUnique({
-      where: { id: dto.batchId },
+  async closeBatch(companyId: string, dto: CloseBatchDto) {
+    const batch = await this.prisma.batch.findFirst({
+      where: { id: dto.batchId, companyId },
       include: {
         sales: true,
         expenses: true,
@@ -171,9 +171,9 @@ export class SettlementsService {
     });
   }
 
-  async reopenBatch(batchId: string) {
-    const batch = await this.prisma.batch.findUnique({
-      where: { id: batchId },
+  async reopenBatch(companyId: string, batchId: string) {
+    const batch = await this.prisma.batch.findFirst({
+      where: { id: batchId, companyId },
     });
 
     if (!batch) {
@@ -193,8 +193,10 @@ export class SettlementsService {
     });
   }
 
-  async findAll(batchId?: string) {
-    const where: Prisma.SettlementWhereInput = {};
+  async findAll(companyId: string, batchId?: string) {
+    const where: Prisma.SettlementWhereInput = {
+      batch: { companyId },
+    };
     if (batchId) {
       where.batchId = batchId;
     }

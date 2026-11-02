@@ -5,10 +5,10 @@ import { PrismaService } from '../prisma/prisma.service';
 export class DashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getExecutiveSummary() {
+  async getExecutiveSummary(companyId: string) {
     // 1. Lotes abiertos
     const openBatches = await this.prisma.batch.findMany({
-      where: { status: 'OPEN' },
+      where: { companyId, status: 'OPEN' },
       include: {
         _count: { select: { purchases: true, sales: true, expenses: true } },
       },
@@ -31,7 +31,7 @@ export class DashboardService {
 
     // 2. Compras normales sin lote (disponibles en bóveda - excluye compras a barequeros)
     const unassignedPurchasesAgg = await this.prisma.purchase.aggregate({
-      where: { batchId: null, type: 'ACCOUNTING' },
+      where: { companyId, batchId: null, type: 'ACCOUNTING' },
       _sum: {
         grossGrams: true,
         fineGrams: true,
@@ -44,32 +44,35 @@ export class DashboardService {
     const unassignedFine = Number(unassignedPurchasesAgg._sum.fineGrams || 0);
     const unassignedCost = Number(unassignedPurchasesAgg._sum.totalCost || 0);
 
-    // 3. Totales Históricos
+    // 3. Totales Históricos (Solo compras contables normales)
     const allPurchasesAgg = await this.prisma.purchase.aggregate({
+      where: { companyId, type: 'ACCOUNTING' },
       _sum: { totalCost: true, grossGrams: true, fineGrams: true },
       _count: { id: true },
     });
     const allSalesAgg = await this.prisma.sale.aggregate({
+      where: { companyId },
       _sum: { totalAmount: true },
       _count: { id: true },
     });
     const allExpensesAgg = await this.prisma.expense.aggregate({
+      where: { companyId },
       _sum: { amount: true },
       _count: { id: true },
     });
     const fourPerThousandAgg = await this.prisma.expense.aggregate({
-      where: { category: 'FOUR_PER_THOUSAND' },
+      where: { companyId, category: 'FOUR_PER_THOUSAND' },
       _sum: { amount: true },
     });
 
     // 4. Saldo Operativo de Capital y Utilidades Pendientes de Liquidar
     const systemSetting = await this.prisma.systemSetting.findUnique({
-      where: { id: 'company_profile' },
+      where: { companyId },
     });
     const workingCapital = systemSetting ? Number(systemSetting.currentCapital) : 0;
 
     const unsettledBatches = await this.prisma.batch.findMany({
-      where: { status: 'CLOSED', monthlySettlementId: null },
+      where: { companyId, status: 'CLOSED', monthlySettlementId: null },
       select: { id: true, netProfit: true, grossSaleAmount: true, netSaleAmount: true },
     });
 
@@ -79,6 +82,7 @@ export class DashboardService {
     );
 
     const lastSettlement = await this.prisma.monthlySettlement.findFirst({
+      where: { companyId },
       orderBy: { settlementDate: 'desc' },
       select: { id: true, code: true, settlementDate: true, netProfit: true },
     });
@@ -96,7 +100,7 @@ export class DashboardService {
 
     // 5. Métricas operativas de lotes cerrados y mes actual
     const closedBatches = await this.prisma.batch.findMany({
-      where: { status: 'CLOSED' },
+      where: { companyId, status: 'CLOSED' },
       select: {
         totalFineGrams: true,
         totalInvestment: true,
@@ -122,19 +126,20 @@ export class DashboardService {
     startOfMonth.setHours(0, 0, 0, 0);
 
     const monthlyPurchasesAgg = await this.prisma.purchase.aggregate({
-      where: { purchaseDate: { gte: startOfMonth } },
+      where: { companyId, purchaseDate: { gte: startOfMonth }, type: 'ACCOUNTING' },
       _sum: { fineGrams: true, totalCost: true },
       _count: { id: true },
     });
 
     const monthlySalesAgg = await this.prisma.sale.aggregate({
-      where: { saleDate: { gte: startOfMonth } },
+      where: { companyId, saleDate: { gte: startOfMonth } },
       _sum: { totalAmount: true },
       _count: { id: true },
     });
 
-    // 6. Actividad Reciente (últimas compras y ventas)
+    // 6. Actividad Reciente (últimas compras normales y ventas)
     const recentPurchases = await this.prisma.purchase.findMany({
+      where: { companyId, type: 'ACCOUNTING' },
       take: 4,
       orderBy: { purchaseDate: 'desc' },
       select: {
@@ -148,6 +153,7 @@ export class DashboardService {
     });
 
     const recentSales = await this.prisma.sale.findMany({
+      where: { companyId },
       take: 4,
       orderBy: { saleDate: 'desc' },
       select: {

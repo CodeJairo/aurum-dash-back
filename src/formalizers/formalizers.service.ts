@@ -17,8 +17,12 @@ export class FormalizersService {
     private readonly storageService: StorageService,
   ) {}
 
-  async findAll(_status?: 'AVAILABLE' | 'USED') {
+  async findAll(companyId: string, status?: 'AVAILABLE' | 'USED') {
     return this.prisma.formalizer.findMany({
+      where: {
+        companyId,
+        ...(status ? { status } : {}),
+      },
       orderBy: { createdAt: 'desc' },
       include: {
         documents: {
@@ -31,8 +35,12 @@ export class FormalizersService {
     });
   }
 
-  async findAvailable() {
+  async findAvailable(companyId: string) {
     return this.prisma.formalizer.findMany({
+      where: {
+        companyId,
+        status: FormalizerStatus.AVAILABLE,
+      },
       orderBy: { name: 'asc' },
     });
   }
@@ -41,10 +49,10 @@ export class FormalizersService {
     return REQUIRED_BAREQUERO_DOCUMENT_CATEGORIES;
   }
 
-  async create(dto: CreateFormalizerDto) {
+  async create(companyId: string, dto: CreateFormalizerDto) {
     const docClean = dto.document.trim();
-    const existing = await this.prisma.formalizer.findUnique({
-      where: { document: docClean },
+    const existing = await this.prisma.formalizer.findFirst({
+      where: { companyId, document: docClean },
     });
 
     if (existing) {
@@ -53,6 +61,7 @@ export class FormalizersService {
 
     return this.prisma.formalizer.create({
       data: {
+        companyId,
         name: dto.name.trim(),
         document: docClean,
         address: dto.address.trim(),
@@ -65,6 +74,7 @@ export class FormalizersService {
   }
 
   async upsertFromBarequero(
+    companyId: string,
     data: {
       name: string;
       document: string;
@@ -79,13 +89,14 @@ export class FormalizersService {
     const client = txClient || this.prisma;
     const docClean = data.document.trim();
 
-    const existing = await client.formalizer.findUnique({
-      where: { document: docClean },
+    const existing = await client.formalizer.findFirst({
+      where: { companyId, document: docClean },
     });
 
     if (!existing) {
       return client.formalizer.create({
         data: {
+          companyId,
           name: data.name.trim(),
           document: docClean,
           address: data.address.trim(),
@@ -101,7 +112,6 @@ export class FormalizersService {
       return existing;
     }
 
-    // Si ya existe y se permite actualizar, actualizamos sus datos de contacto
     return client.formalizer.update({
       where: { id: existing.id },
       data: {
@@ -114,13 +124,14 @@ export class FormalizersService {
   }
 
   async markAsUsed(
+    companyId: string,
     personIds: string[],
     batchId: string,
     txClient: Prisma.TransactionClient,
   ) {
-    // Validar que todas existan (un barequero puede ser utilizado múltiples veces)
     const persons = await txClient.formalizer.findMany({
       where: {
+        companyId,
         id: { in: personIds },
       },
     });
@@ -133,7 +144,7 @@ export class FormalizersService {
 
     const now = new Date();
     await txClient.formalizer.updateMany({
-      where: { id: { in: personIds } },
+      where: { companyId, id: { in: personIds } },
       data: {
         usedInBatchId: batchId,
         usedAt: now,
@@ -141,9 +152,9 @@ export class FormalizersService {
     });
   }
 
-  async findOne(id: string) {
-    const formalizer = await this.prisma.formalizer.findUnique({
-      where: { id },
+  async findOne(companyId: string, id: string) {
+    const formalizer = await this.prisma.formalizer.findFirst({
+      where: { id, companyId },
       include: {
         documents: {
           orderBy: { createdAt: 'desc' },
@@ -162,6 +173,7 @@ export class FormalizersService {
   }
 
   async update(
+    companyId: string,
     id: string,
     data: {
       name?: string;
@@ -171,7 +183,7 @@ export class FormalizersService {
       country?: string;
     },
   ) {
-    await this.findOne(id);
+    await this.findOne(companyId, id);
     return this.prisma.formalizer.update({
       where: { id },
       data: {
@@ -205,17 +217,18 @@ export class FormalizersService {
   }
 
   async addDocument(
+    companyId: string,
     formalizerId: string,
     file: Express.Multer.File,
     category: string = 'OTRO',
     customName?: string,
     period?: string,
   ) {
-    const formalizer = await this.findOne(formalizerId);
+    const formalizer = await this.findOne(companyId, formalizerId);
 
     const uploadRes = await this.storageService.uploadFile(
       file,
-      `barequeros/${formalizer.document}`,
+      `companies/${companyId}/barequeros/${formalizer.document}`,
     );
 
     const docName =
@@ -224,6 +237,7 @@ export class FormalizersService {
 
     const createdDoc = await this.prisma.barequeroDocument.create({
       data: {
+        companyId,
         formalizerId: formalizer.id,
         name: docName,
         category: category || 'OTRO',
@@ -235,11 +249,11 @@ export class FormalizersService {
       },
     });
 
-    // Si es fotografía del barequero, actualizar compras de este barequero que no tengan foto
     if (category === 'FOTO_BAREQUERO') {
       try {
         await this.prisma.purchase.updateMany({
           where: {
+            companyId,
             vendorDoc: formalizer.document,
             vendorPhotoUrl: null,
           },
@@ -248,7 +262,7 @@ export class FormalizersService {
             vendorPhotoKey: uploadRes.fileKey,
           },
         });
-      } catch (err) {
+      } catch {
         // No bloquear la subida si falla la actualización en compras
       }
     }
@@ -262,9 +276,9 @@ export class FormalizersService {
     });
   }
 
-  async deleteDocument(formalizerId: string, documentId: string) {
+  async deleteDocument(companyId: string, formalizerId: string, documentId: string) {
     const doc = await this.prisma.barequeroDocument.findFirst({
-      where: { id: documentId, formalizerId },
+      where: { id: documentId, formalizerId, companyId },
     });
 
     if (!doc) {

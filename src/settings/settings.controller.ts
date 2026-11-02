@@ -5,6 +5,7 @@ import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { AuthGuard } from '../auth/auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { CurrentCompanyId } from '../auth/current-user.decorator';
 
 @Controller('settings')
 @UseGuards(AuthGuard, RolesGuard)
@@ -12,18 +13,21 @@ export class SettingsController {
   constructor(private readonly settingsService: SettingsService) {}
 
   @Get()
-  getSettings() {
-    return this.settingsService.getSettings();
+  getSettings(@CurrentCompanyId() companyId: string) {
+    return this.settingsService.getSettings(companyId);
   }
 
   @Put()
   @Roles(Role.ADMIN)
-  updateSettings(@Body() dto: UpdateSettingsDto) {
-    return this.settingsService.updateSettings(dto);
+  updateSettings(
+    @CurrentCompanyId() companyId: string,
+    @Body() dto: UpdateSettingsDto,
+  ) {
+    return this.settingsService.updateSettings(companyId, dto);
   }
 
   @Get('preview-consecutive')
-  previewConsecutive() {
-    return this.settingsService.getNextConsecutivePreview();
+  previewConsecutive(@CurrentCompanyId() companyId: string) {
+    return this.settingsService.getNextConsecutivePreview(companyId);
   }
 }

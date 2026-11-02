@@ -128,7 +128,7 @@ export class StorageService implements OnModuleInit {
         const publicBase = process.env.S3_PUBLIC_URL || '';
         const fileUrl = publicBase
           ? `${publicBase}/${fileKey}`
-          : `${apiBasePath}/${encodeURIComponent(fileKey)}`;
+          : `${apiBasePath}?key=${encodeURIComponent(fileKey)}`;
 
         return {
           fileKey,
@@ -147,7 +147,7 @@ export class StorageService implements OnModuleInit {
 
     return {
       fileKey,
-      fileUrl: `${apiBasePath}/${encodeURIComponent(path.basename(fileKey))}`,
+      fileUrl: `${apiBasePath}?key=${encodeURIComponent(path.basename(fileKey))}`,
       sizeBytes: file.size,
       mimeType: file.mimetype,
     };

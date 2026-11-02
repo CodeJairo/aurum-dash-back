@@ -22,11 +22,16 @@ export class PurchasesService {
     private readonly storageService: StorageService,
   ) {}
 
-  async getNextConsecutive() {
-    return this.settingsService.getNextConsecutivePreview();
+  async getNextConsecutive(companyId: string) {
+    return this.settingsService.getNextConsecutivePreview(companyId);
   }
 
   async create(dto: CreatePurchaseDto, currentUser?: any) {
+    const companyId = currentUser?.companyId;
+    if (!companyId) {
+      throw new ForbiddenException('Contexto de empresa (tenant) requerido.');
+    }
+
     const grossGrams = Number(dto.grossGrams);
     const pricePerGram = Number(dto.pricePerGram);
     const purchaseType = dto.type ?? PurchaseTypeDto.ACCOUNTING;
@@ -73,8 +78,8 @@ export class PurchasesService {
     const totalCost = baseGrams * pricePerGram;
 
     if (dto.batchId) {
-      const batch = await this.prisma.batch.findUnique({
-        where: { id: dto.batchId },
+      const batch = await this.prisma.batch.findFirst({
+        where: { id: dto.batchId, companyId },
       });
       if (!batch) {
         throw new NotFoundException(`El lote con ID "${dto.batchId}" no existe.`);
@@ -89,18 +94,18 @@ export class PurchasesService {
       return this.prisma.$transaction(async (tx) => {
         let consecutive = dto.consecutive?.trim();
         if (consecutive) {
-          const exists = await tx.purchase.findUnique({
-            where: { consecutive },
+          const exists = await tx.purchase.findFirst({
+            where: { companyId, consecutive, type: 'FORMAL' },
           });
           if (exists) {
             throw new ConflictException(`El consecutivo formal "${consecutive}" ya se encuentra registrado.`);
           }
         } else {
-          consecutive = await this.settingsService.reserveNextConsecutive(tx);
+          consecutive = await this.settingsService.reserveNextConsecutive(companyId, tx);
         }
 
         const settings = await tx.systemSetting.findUnique({
-          where: { id: 'company_profile' },
+          where: { companyId },
         });
 
         const recipientName = dto.recipientName || settings?.legalName || 'DANIEL CAMILO HERRERA RENTERIA';
@@ -109,6 +114,7 @@ export class PurchasesService {
 
         const purchase = await tx.purchase.create({
           data: {
+            companyId,
             type: 'FORMAL',
             consecutive,
             supplier: dto.supplier,
@@ -147,6 +153,7 @@ export class PurchasesService {
         // 1. Auto-crear / registrar persona para formalizar si vienen los datos del Barequero
         if (dto.vendorDoc && dto.supplier) {
           const formalizer = await this.formalizersService.upsertFromBarequero(
+            companyId,
             {
               name: dto.supplier,
               document: dto.vendorDoc,
@@ -170,11 +177,12 @@ export class PurchasesService {
 
             await tx.barequeroDocument.create({
               data: {
+                companyId,
                 formalizerId: formalizer.id,
                 name: `foto_barequero_${formalizer.document}`,
                 category: 'FOTO_BAREQUERO',
                 period: currentPeriod,
-                fileKey: dto.vendorPhotoKey || `barequeros/photos/foto_${formalizer.document}.jpg`,
+                fileKey: dto.vendorPhotoKey || `companies/${companyId}/barequeros/photos/foto_${formalizer.document}.jpg`,
                 fileUrl: dto.vendorPhotoUrl,
                 mimeType: 'image/jpeg',
               },
@@ -192,14 +200,14 @@ export class PurchasesService {
     return this.prisma.$transaction(async (tx) => {
       let consecutive = dto.consecutive?.trim();
       if (consecutive) {
-        const exists = await tx.purchase.findUnique({
-          where: { consecutive },
+        const exists = await tx.purchase.findFirst({
+          where: { companyId, consecutive, type: 'ACCOUNTING' },
         });
         if (exists) {
           throw new ConflictException(`El consecutivo de compra "${consecutive}" ya se encuentra registrado.`);
         }
       } else {
-        const nextNum = await this.settingsService.reserveNextPurchaseNum(tx);
+        const nextNum = await this.settingsService.reserveNextPurchaseNum(companyId, tx);
         consecutive = String(nextNum);
       }
 
@@ -223,6 +231,7 @@ export class PurchasesService {
 
       const purchase = await tx.purchase.create({
         data: {
+          companyId,
           type: 'ACCOUNTING',
           consecutive,
           supplier: dto.supplier,
@@ -252,6 +261,7 @@ export class PurchasesService {
       if (paymentMethod === PaymentAccount.MIXED) {
         if (cashAmountVal && cashAmountVal > 0) {
           await this.capitalService.recordSystemMovement(
+            companyId,
             CapitalMovementType.PURCHASE_PAYMENT,
             -cashAmountVal,
             `Pago (Efectivo) compra Nº ${consecutive} - ${dto.supplier || 'Cliente'}`,
@@ -262,6 +272,7 @@ export class PurchasesService {
         }
         if (bankAmountVal && bankAmountVal > 0) {
           await this.capitalService.recordSystemMovement(
+            companyId,
             CapitalMovementType.PURCHASE_PAYMENT,
             -bankAmountVal,
             `Pago (Banco) compra Nº ${consecutive} - ${dto.supplier || 'Cliente'}`,
@@ -272,6 +283,7 @@ export class PurchasesService {
         }
       } else {
         await this.capitalService.recordSystemMovement(
+          companyId,
           CapitalMovementType.PURCHASE_PAYMENT,
           -totalCost,
           `Pago compra Nº ${consecutive} - ${dto.supplier || 'Cliente'}`,
@@ -289,8 +301,8 @@ export class PurchasesService {
     });
   }
 
-  async findAll(status?: 'unassigned' | 'assigned', type?: 'ACCOUNTING' | 'FORMAL') {
-    const where: Prisma.PurchaseWhereInput = {};
+  async findAll(companyId: string, status?: 'unassigned' | 'assigned', type?: 'ACCOUNTING' | 'FORMAL') {
+    const where: Prisma.PurchaseWhereInput = { companyId };
     if (status === 'unassigned') {
       where.batchId = null;
     } else if (status === 'assigned') {
@@ -329,6 +341,7 @@ export class PurchasesService {
     if (missingPhotoDocs.length > 0) {
       const barequeroPhotos = await this.prisma.barequeroDocument.findMany({
         where: {
+          companyId,
           category: 'FOTO_BAREQUERO',
           formalizer: {
             document: { in: missingPhotoDocs },
@@ -365,9 +378,9 @@ export class PurchasesService {
     return purchases;
   }
 
-  async findOne(id: string) {
-    const purchase = await this.prisma.purchase.findUnique({
-      where: { id },
+  async findOne(companyId: string, id: string) {
+    const purchase = await this.prisma.purchase.findFirst({
+      where: { id, companyId },
       include: {
         batch: true,
         formalizedBatch: true,
@@ -381,6 +394,7 @@ export class PurchasesService {
     if (purchase.type === 'FORMAL' && !purchase.vendorPhotoUrl && purchase.vendorDoc) {
       const barequeroPhoto = await this.prisma.barequeroDocument.findFirst({
         where: {
+          companyId,
           category: 'FOTO_BAREQUERO',
           formalizer: {
             document: purchase.vendorDoc.trim(),
@@ -400,8 +414,8 @@ export class PurchasesService {
     return purchase;
   }
 
-  async update(id: string, dto: UpdatePurchaseDto) {
-    const existing = await this.findOne(id);
+  async update(companyId: string, id: string, dto: UpdatePurchaseDto) {
+    const existing = await this.findOne(companyId, id);
 
     if (existing.batch && existing.batch.status === 'CLOSED') {
       throw new BadRequestException('No se puede modificar una compra de un lote cerrado.');
@@ -490,8 +504,8 @@ export class PurchasesService {
     return updated;
   }
 
-  async generateReceiptExcel(id: string): Promise<{ buffer: Buffer; filename: string }> {
-    const purchase = await this.findOne(id);
+  async generateReceiptExcel(companyId: string, id: string): Promise<{ buffer: Buffer; filename: string }> {
+    const purchase = await this.findOne(companyId, id);
 
     const isAccounting = purchase.type === 'ACCOUNTING';
     const templateName = isAccounting ? 'compra.xlsx' : 'recepcion_material.xlsx';
@@ -641,13 +655,17 @@ export class PurchasesService {
     return { buffer, filename };
   }
 
-  async remove(id: string) {
-    const existing = await this.findOne(id);
-    if (existing.batch && existing.batch.status === 'CLOSED') {
-      throw new BadRequestException('No se puede eliminar una compra de un lote cerrado.');
+  async remove(companyId: string, id: string) {
+    const existing = await this.findOne(companyId, id);
+    if (existing.type === 'ACCOUNTING' && existing.batchId) {
+      throw new BadRequestException(
+        'No se puede eliminar una compra contable asignada a un lote.',
+      );
     }
-    if (existing.formalizedBatch && existing.formalizedBatch.status === 'CLOSED') {
-      throw new BadRequestException('No se puede eliminar una compra formalizada en un lote cerrado.');
+    if (existing.type === 'FORMAL' && existing.formalizedBatchId) {
+      throw new BadRequestException(
+        'No se puede eliminar una compra a barequero que ya fue utilizada para formalizar un lote.',
+      );
     }
 
     const batchId = existing.batchId;
@@ -672,6 +690,7 @@ export class PurchasesService {
           const bankPortion = Number(existing.bankAmount || 0);
           if (cashPortion > 0) {
             await this.capitalService.recordSystemMovement(
+              companyId,
               CapitalMovementType.MANUAL_ADJUSTMENT,
               cashPortion,
               `Reintegro (Efectivo) por eliminación de compra ${existing.consecutive || ''} - ${existing.supplier || 'Proveedor'}`,
@@ -682,6 +701,7 @@ export class PurchasesService {
           }
           if (bankPortion > 0) {
             await this.capitalService.recordSystemMovement(
+              companyId,
               CapitalMovementType.MANUAL_ADJUSTMENT,
               bankPortion,
               `Reintegro (Banco) por eliminación de compra ${existing.consecutive || ''} - ${existing.supplier || 'Proveedor'}`,
@@ -692,6 +712,7 @@ export class PurchasesService {
           }
         } else {
           await this.capitalService.recordSystemMovement(
+            companyId,
             CapitalMovementType.MANUAL_ADJUSTMENT,
             totalCost,
             `Reintegro por eliminación de compra ${existing.consecutive || ''} - ${existing.supplier || 'Proveedor'}`,
@@ -708,11 +729,11 @@ export class PurchasesService {
       }
 
       // 4. Actualizar contadores en SystemSetting para reflejar el nuevo máximo activo
-      const settings = await this.settingsService.getSettings();
-      const nextFormal = await this.settingsService.calculateNextConsecutiveNum(settings.consecutivePrefix, tx);
-      const nextAcc = await this.settingsService.calculateNextPurchaseNum(tx);
+      const settings = await this.settingsService.getSettings(companyId);
+      const nextFormal = await this.settingsService.calculateNextConsecutiveNum(companyId, settings.consecutivePrefix, tx);
+      const nextAcc = await this.settingsService.calculateNextPurchaseNum(companyId, tx);
       await tx.systemSetting.update({
-        where: { id: settings.id },
+        where: { companyId },
         data: {
           lastConsecutiveNum: Math.max(0, nextFormal - 1),
           lastPurchaseNum: Math.max(0, nextAcc - 1),
@@ -757,8 +778,8 @@ export class PurchasesService {
     });
   }
 
-  async uploadSignedReceipt(id: string, file: Express.Multer.File) {
-    const purchase = await this.findOne(id);
+  async uploadSignedReceipt(companyId: string, id: string, file: Express.Multer.File) {
+    const purchase = await this.findOne(companyId, id);
 
     // Si ya tenía un soporte firmado previo, eliminar el archivo anterior
     if (purchase.signedReceiptKey) {
@@ -766,7 +787,7 @@ export class PurchasesService {
     }
 
     const safeConsecutive = purchase.consecutive ? purchase.consecutive.replace(/\s+/g, '_') : purchase.id;
-    const prefix = `purchases/${safeConsecutive}`;
+    const prefix = `companies/${companyId}/purchases/${safeConsecutive}`;
     const uploadRes = await this.storageService.uploadFile(
       file,
       prefix,
@@ -809,8 +830,10 @@ export class PurchasesService {
   }
 
   async getSignedReceiptStream(id: string) {
-    const purchase = await this.findOne(id);
-    if (!purchase.signedReceiptKey) {
+    const purchase = await this.prisma.purchase.findUnique({
+      where: { id },
+    });
+    if (!purchase || !purchase.signedReceiptKey) {
       throw new NotFoundException('Esta compra no tiene un soporte firmado adjunto.');
     }
 
@@ -821,8 +844,8 @@ export class PurchasesService {
     };
   }
 
-  async removeSignedReceipt(id: string) {
-    const purchase = await this.findOne(id);
+  async removeSignedReceipt(companyId: string, id: string) {
+    const purchase = await this.findOne(companyId, id);
     if (purchase.signedReceiptKey) {
       await this.storageService.deleteFile(purchase.signedReceiptKey);
     }

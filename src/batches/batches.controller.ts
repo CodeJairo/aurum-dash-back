@@ -18,6 +18,7 @@ import { SellBatchDto } from './dto/sell-batch.dto';
 import { AuthGuard } from '../auth/auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { CurrentCompanyId } from '../auth/current-user.decorator';
 
 @Controller('batches')
 @UseGuards(AuthGuard, RolesGuard)
@@ -26,59 +27,72 @@ export class BatchesController {
 
   @Post()
   @Roles(Role.ADMIN)
-  create(@Body() dto: CreateBatchDto) {
-    return this.batchesService.create(dto);
+  create(@CurrentCompanyId() companyId: string, @Body() dto: CreateBatchDto) {
+    return this.batchesService.create(companyId, dto);
   }
 
   @Post('unify')
   @Roles(Role.ADMIN)
-  unifyPurchases(@Body() dto: UnifyPurchasesDto) {
-    return this.batchesService.unifyPurchases(dto);
+  unifyPurchases(@CurrentCompanyId() companyId: string, @Body() dto: UnifyPurchasesDto) {
+    return this.batchesService.unifyPurchases(companyId, dto);
   }
 
   @Post(':id/sell')
   @Roles(Role.ADMIN)
-  sellBatch(@Param('id') id: string, @Body() dto: SellBatchDto) {
-    return this.batchesService.sellBatch(id, dto);
+  sellBatch(
+    @CurrentCompanyId() companyId: string,
+    @Param('id') id: string,
+    @Body() dto: SellBatchDto,
+  ) {
+    return this.batchesService.sellBatch(companyId, id, dto);
   }
 
   @Get(':id/formalization-suggestions')
   getFormalizationSuggestions(
+    @CurrentCompanyId() companyId: string,
     @Param('id') id: string,
     @Query('targetGrossGrams') targetGrossGrams?: string,
   ) {
     const target = targetGrossGrams ? Number(targetGrossGrams) : undefined;
-    return this.batchesService.getFormalizationSuggestions(id, target);
+    return this.batchesService.getFormalizationSuggestions(companyId, id, target);
   }
 
   @Delete(':id/purchases/:purchaseId')
   @Roles(Role.ADMIN)
   disassociatePurchase(
+    @CurrentCompanyId() companyId: string,
     @Param('id') id: string,
     @Param('purchaseId') purchaseId: string,
   ) {
-    return this.batchesService.disassociatePurchase(id, purchaseId);
+    return this.batchesService.disassociatePurchase(companyId, id, purchaseId);
   }
 
   @Get()
-  findAll(@Query('status') status?: 'OPEN' | 'CLOSED') {
-    return this.batchesService.findAll(status);
+  findAll(
+    @CurrentCompanyId() companyId: string,
+    @Query('status') status?: 'OPEN' | 'CLOSED',
+  ) {
+    return this.batchesService.findAll(companyId, status);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.batchesService.findOne(id);
+  findOne(@CurrentCompanyId() companyId: string, @Param('id') id: string) {
+    return this.batchesService.findOne(companyId, id);
   }
 
   @Patch(':id')
   @Roles(Role.ADMIN)
-  update(@Param('id') id: string, @Body() dto: UpdateBatchDto) {
-    return this.batchesService.update(id, dto);
+  update(
+    @CurrentCompanyId() companyId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateBatchDto,
+  ) {
+    return this.batchesService.update(companyId, id, dto);
   }
 
   @Delete(':id')
   @Roles(Role.ADMIN)
-  remove(@Param('id') id: string) {
-    return this.batchesService.remove(id);
+  remove(@CurrentCompanyId() companyId: string, @Param('id') id: string) {
+    return this.batchesService.remove(companyId, id);
   }
 }

@@ -21,9 +21,9 @@ export class BatchesService {
     private readonly capitalService: CapitalService,
   ) {}
 
-  async create(dto: CreateBatchDto) {
-    const existing = await this.prisma.batch.findUnique({
-      where: { code: dto.code },
+  async create(companyId: string, dto: CreateBatchDto) {
+    const existing = await this.prisma.batch.findFirst({
+      where: { companyId, code: dto.code.trim().toUpperCase() },
     });
     if (existing) {
       throw new ConflictException(`Ya existe un lote con el código "${dto.code}".`);
@@ -33,6 +33,7 @@ export class BatchesService {
       // 1. Crear el lote inicial
       const batch = await tx.batch.create({
         data: {
+          companyId,
           code: dto.code.trim().toUpperCase(),
           name: dto.name.trim(),
           description: dto.description?.trim(),
@@ -42,16 +43,20 @@ export class BatchesService {
       // 2. Si vienen compras seleccionadas, asociarlas (verificando que sean normales)
       if (dto.purchaseIds && dto.purchaseIds.length > 0) {
         const candidatePurchases = await tx.purchase.findMany({
-          where: { id: { in: dto.purchaseIds } },
+          where: { id: { in: dto.purchaseIds }, companyId },
           select: { id: true, type: true },
         });
+
+        if (candidatePurchases.length !== dto.purchaseIds.length) {
+          throw new BadRequestException('Una o más compras seleccionadas no existen en la empresa.');
+        }
 
         if (candidatePurchases.some((p) => p.type !== 'ACCOUNTING')) {
           throw new BadRequestException('Solo las compras normales se pueden asociar a un lote. Las compras a barequeros se usan para formalizar la venta.');
         }
 
         await tx.purchase.updateMany({
-          where: { id: { in: dto.purchaseIds } },
+          where: { id: { in: dto.purchaseIds }, companyId },
           data: { batchId: batch.id },
         });
 
@@ -73,9 +78,9 @@ export class BatchesService {
     });
   }
 
-  async unifyPurchases(dto: UnifyPurchasesDto) {
-    const batch = await this.prisma.batch.findUnique({
-      where: { id: dto.batchId },
+  async unifyPurchases(companyId: string, dto: UnifyPurchasesDto) {
+    const batch = await this.prisma.batch.findFirst({
+      where: { id: dto.batchId, companyId },
     });
     if (!batch) {
       throw new NotFoundException(`El lote con ID "${dto.batchId}" no existe.`);
@@ -87,9 +92,13 @@ export class BatchesService {
     return this.prisma.$transaction(async (tx) => {
       // Obtener compras para verificar si pertenecían a otro lote previo y validar que sean contables normales
       const purchases = await tx.purchase.findMany({
-        where: { id: { in: dto.purchaseIds } },
+        where: { id: { in: dto.purchaseIds }, companyId },
         select: { id: true, batchId: true, type: true },
       });
+
+      if (purchases.length !== dto.purchaseIds.length) {
+        throw new BadRequestException('Una o más compras seleccionadas no pertenecen a la empresa.');
+      }
 
       if (purchases.some((p) => p.type !== 'ACCOUNTING')) {
         throw new BadRequestException('Solo las compras normales se pueden asociar a un lote. Las compras a barequeros se usan para formalizar la venta.');
@@ -105,7 +114,7 @@ export class BatchesService {
 
       // Asociar compras al lote destino
       await tx.purchase.updateMany({
-        where: { id: { in: dto.purchaseIds } },
+        where: { id: { in: dto.purchaseIds }, companyId },
         data: { batchId: dto.batchId },
       });
 
@@ -131,9 +140,9 @@ export class BatchesService {
     });
   }
 
-  async disassociatePurchase(batchId: string, purchaseId: string) {
-    const batch = await this.prisma.batch.findUnique({
-      where: { id: batchId },
+  async disassociatePurchase(companyId: string, batchId: string, purchaseId: string) {
+    const batch = await this.prisma.batch.findFirst({
+      where: { id: batchId, companyId },
     });
     if (!batch) {
       throw new NotFoundException(`El lote "${batchId}" no existe.`);
@@ -143,8 +152,8 @@ export class BatchesService {
     }
 
     return this.prisma.$transaction(async (tx) => {
-      await tx.purchase.update({
-        where: { id: purchaseId },
+      await tx.purchase.updateMany({
+        where: { id: purchaseId, companyId },
         data: { batchId: null },
       });
 
@@ -157,8 +166,8 @@ export class BatchesService {
     });
   }
 
-  async findAll(status?: 'OPEN' | 'CLOSED') {
-    const where: Prisma.BatchWhereInput = {};
+  async findAll(companyId: string, status?: 'OPEN' | 'CLOSED') {
+    const where: Prisma.BatchWhereInput = { companyId };
     if (status) {
       where.status = status;
     }
@@ -180,9 +189,9 @@ export class BatchesService {
     });
   }
 
-  async findOne(id: string) {
-    const batch = await this.prisma.batch.findUnique({
-      where: { id },
+  async findOne(companyId: string, id: string) {
+    const batch = await this.prisma.batch.findFirst({
+      where: { id, companyId },
       include: {
         purchases: {
           orderBy: { purchaseDate: 'desc' },
@@ -213,8 +222,8 @@ export class BatchesService {
     return batch;
   }
 
-  async update(id: string, dto: UpdateBatchDto) {
-    const batch = await this.findOne(id);
+  async update(companyId: string, id: string, dto: UpdateBatchDto) {
+    const batch = await this.findOne(companyId, id);
 
     return this.prisma.batch.update({
       where: { id },
@@ -231,8 +240,8 @@ export class BatchesService {
     });
   }
 
-  async sellBatch(id: string, dto: SellBatchDto) {
-    const batch = await this.findOne(id);
+  async sellBatch(companyId: string, id: string, dto: SellBatchDto) {
+    const batch = await this.findOne(companyId, id);
     if (batch.status === 'CLOSED') {
       throw new BadRequestException('Este lote ya se encuentra cerrado / vendido.');
     }
@@ -258,7 +267,7 @@ export class BatchesService {
 
     if (usesFormalPurchases) {
       const formalPurchases = await this.prisma.purchase.findMany({
-        where: { id: { in: dto.formalizationPurchaseIds } },
+        where: { id: { in: dto.formalizationPurchaseIds }, companyId },
       });
 
       if (formalPurchases.length !== dto.formalizationPurchaseIds!.length) {
@@ -302,14 +311,14 @@ export class BatchesService {
       // 1. Vincular compras a barequeros al lote si aplica
       if (usesFormalPurchases && dto.formalizationPurchaseIds) {
         await tx.purchase.updateMany({
-          where: { id: { in: dto.formalizationPurchaseIds } },
+          where: { id: { in: dto.formalizationPurchaseIds }, companyId },
           data: { formalizedBatchId: batch.id },
         });
       }
 
       // Si se enviaron formalizadores personas (compatibilidad), marcarlos
       if (dto.formalizerIds && dto.formalizerIds.length > 0) {
-        await this.formalizersService.markAsUsed(dto.formalizerIds, batch.id, tx);
+        await this.formalizersService.markAsUsed(companyId, dto.formalizerIds, batch.id, tx);
       }
 
       // 2. Cerrar lote con métricas financieras de venta y gramos refundidos
@@ -350,6 +359,7 @@ export class BatchesService {
       // 3. Registrar venta en tabla de ventas
       await tx.sale.create({
         data: {
+          companyId,
           customer: `Venta Lote ${batch.code}`,
           description: `Venta formalizada con ${formalizerCount} compras a barequeros (Gramos refundidos: ${finalGrossGrams.toFixed(2)} g brutos / ${finalFineGrams.toFixed(2)} g finos).`,
           grossGrams: new Prisma.Decimal(finalGrossGrams.toFixed(4)),
@@ -366,6 +376,7 @@ export class BatchesService {
       // La utilidad queda retenida en el capital rotatorio hasta que se realice la liquidación del periodo
       if (netSale > 0) {
         await this.capitalService.recordSystemMovement(
+          companyId,
           CapitalMovementType.BATCH_SALE_INCOME,
           netSale,
           `Ingreso venta neta lote ${batch.code} (${destinationAccount === PaymentAccount.BANK ? 'Banco' : 'Efectivo'})`,
@@ -379,8 +390,8 @@ export class BatchesService {
     });
   }
 
-  async getFormalizationSuggestions(id: string, targetGrossOverride?: number) {
-    const batch = await this.findOne(id);
+  async getFormalizationSuggestions(companyId: string, id: string, targetGrossOverride?: number) {
+    const batch = await this.findOne(companyId, id);
     const targetGrams =
       targetGrossOverride !== undefined && targetGrossOverride > 0
         ? targetGrossOverride
@@ -389,6 +400,7 @@ export class BatchesService {
 
     const availablePurchases = await this.prisma.purchase.findMany({
       where: {
+        companyId,
         type: 'FORMAL',
         formalizedBatchId: null,
       },
@@ -445,8 +457,8 @@ export class BatchesService {
     };
   }
 
-  async remove(id: string) {
-    const batch = await this.findOne(id);
+  async remove(companyId: string, id: string) {
+    const batch = await this.findOne(companyId, id);
     if (batch.status === 'CLOSED') {
       throw new BadRequestException('No se puede eliminar un lote cerrado.');
     }
@@ -454,12 +466,12 @@ export class BatchesService {
     return this.prisma.$transaction(async (tx) => {
       // Desvincular compras asociadas para no borrarlas del inventario histórico
       await tx.purchase.updateMany({
-        where: { batchId: id },
+        where: { batchId: id, companyId },
         data: { batchId: null },
       });
 
       await tx.purchase.updateMany({
-        where: { formalizedBatchId: id },
+        where: { formalizedBatchId: id, companyId },
         data: { formalizedBatchId: null },
       });
 

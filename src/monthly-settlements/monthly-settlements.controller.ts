@@ -15,6 +15,7 @@ import { CreateMonthlySettlementDto } from './dto/create-monthly-settlement.dto'
 import { AuthGuard } from '../auth/auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { CurrentCompanyId } from '../auth/current-user.decorator';
 
 @Controller('monthly-settlements')
 @UseGuards(AuthGuard, RolesGuard)
@@ -25,31 +26,36 @@ export class MonthlySettlementsController {
 
   @Get('preview')
   preview(
+    @CurrentCompanyId() companyId: string,
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string,
   ) {
-    return this.monthlySettlementsService.preview(startDate, endDate);
+    return this.monthlySettlementsService.preview(companyId, startDate, endDate);
   }
 
   @Post()
   @Roles(Role.ADMIN)
-  create(@Body() dto: CreateMonthlySettlementDto, @Request() req: any) {
-    return this.monthlySettlementsService.create(dto, req.user?.sub || req.user?.id);
+  create(
+    @CurrentCompanyId() companyId: string,
+    @Body() dto: CreateMonthlySettlementDto,
+    @Request() req: any,
+  ) {
+    return this.monthlySettlementsService.create(companyId, dto, req.user?.sub || req.user?.id);
   }
 
   @Get()
-  findAll() {
-    return this.monthlySettlementsService.findAll();
+  findAll(@CurrentCompanyId() companyId: string) {
+    return this.monthlySettlementsService.findAll(companyId);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.monthlySettlementsService.findOne(id);
+  findOne(@CurrentCompanyId() companyId: string, @Param('id') id: string) {
+    return this.monthlySettlementsService.findOne(companyId, id);
   }
 
   @Delete(':id')
   @Roles(Role.ADMIN)
-  remove(@Param('id') id: string) {
-    return this.monthlySettlementsService.remove(id);
+  remove(@CurrentCompanyId() companyId: string, @Param('id') id: string) {
+    return this.monthlySettlementsService.remove(companyId, id);
   }
 }

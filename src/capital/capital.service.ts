@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { StorageService } from '../storage/storage.service';
 import {
   CapitalActionDto,
   CreateCapitalMovementDto,
@@ -9,22 +10,23 @@ import { CapitalMovementType, PaymentAccount, Prisma } from '@prisma/client';
 
 @Injectable()
 export class CapitalService {
-  private readonly defaultSettingsId = 'company_profile';
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly storageService: StorageService,
+  ) {}
 
-  constructor(private readonly prisma: PrismaService) {}
-
-  async getBalance() {
+  async getBalance(companyId: string) {
     let setting = await this.prisma.systemSetting.findUnique({
-      where: { id: this.defaultSettingsId },
+      where: { companyId },
     });
 
     if (!setting) {
       setting = await this.prisma.systemSetting.create({
         data: {
-          id: this.defaultSettingsId,
-          legalName: 'DANIEL CAMILO HERRERA RENTERIA',
-          document: '1.078.000.069',
-          address: 'CR 8 CL 30 8 07',
+          companyId,
+          legalName: 'Compraventa de Oro',
+          document: '',
+          address: '',
           consecutivePrefix: 'DH-',
           currentCapital: new Prisma.Decimal(0.0),
           cashCapital: new Prisma.Decimal(0.0),
@@ -40,14 +42,15 @@ export class CapitalService {
     // Si currentCapital no coincide con la suma de caja y banco, sincronizar
     if (Number(setting.currentCapital) !== totalCapital) {
       await this.prisma.systemSetting.update({
-        where: { id: this.defaultSettingsId },
+        where: { companyId },
         data: { currentCapital: new Prisma.Decimal(totalCapital.toFixed(2)) },
       });
     }
 
-    // Calcular Utilidad Retenida (Lotes cerrados cuya utilidad aún no ha sido liquidada)
+    // Calcular Utilidad Retenida (Lotes cerrados de esta empresa cuya utilidad aún no ha sido liquidada)
     const closedBatches = await this.prisma.batch.findMany({
       where: {
+        companyId,
         status: 'CLOSED',
         monthlySettlementId: null,
       },
@@ -73,23 +76,24 @@ export class CapitalService {
     };
   }
 
-  async getMovements(limit = 100) {
+  async getMovements(companyId: string, limit = 100) {
     return this.prisma.capitalMovement.findMany({
+      where: { companyId },
       orderBy: { createdAt: 'desc' },
       take: limit,
     });
   }
 
-  async createManualMovement(dto: CreateCapitalMovementDto) {
+  async createManualMovement(companyId: string, dto: CreateCapitalMovementDto) {
     return this.prisma.$transaction(async (tx) => {
       let setting = await tx.systemSetting.findUnique({
-        where: { id: this.defaultSettingsId },
+        where: { companyId },
       });
 
       if (!setting) {
         setting = await tx.systemSetting.create({
           data: {
-            id: this.defaultSettingsId,
+            companyId,
             currentCapital: new Prisma.Decimal(0),
             cashCapital: new Prisma.Decimal(0),
             bankCapital: new Prisma.Decimal(0),
@@ -132,7 +136,7 @@ export class CapitalService {
       const totalAfter = Number((cashBal + bankBal).toFixed(2));
 
       await tx.systemSetting.update({
-        where: { id: this.defaultSettingsId },
+        where: { companyId },
         data: {
           cashCapital: new Prisma.Decimal(cashBal.toFixed(2)),
           bankCapital: new Prisma.Decimal(bankBal.toFixed(2)),
@@ -142,6 +146,7 @@ export class CapitalService {
 
       const movement = await tx.capitalMovement.create({
         data: {
+          companyId,
           type: movementType,
           amount: new Prisma.Decimal(delta.toFixed(2)),
           balanceBefore: new Prisma.Decimal(totalBefore.toFixed(2)),
@@ -149,6 +154,8 @@ export class CapitalService {
           account: targetAccount,
           description: dto.description.trim(),
           referenceId: dto.referenceId,
+          receiptUrl: dto.receiptUrl?.trim() || null,
+          receiptKey: dto.receiptKey?.trim() || null,
         },
       });
 
@@ -161,7 +168,7 @@ export class CapitalService {
     });
   }
 
-  async transferInternal(dto: TransferCapitalDto) {
+  async transferInternal(companyId: string, dto: TransferCapitalDto) {
     if (dto.fromAccount === dto.toAccount) {
       throw new BadRequestException('La cuenta de origen y destino no pueden ser la misma.');
     }
@@ -179,13 +186,13 @@ export class CapitalService {
 
     return this.prisma.$transaction(async (tx) => {
       let setting = await tx.systemSetting.findUnique({
-        where: { id: this.defaultSettingsId },
+        where: { companyId },
       });
 
       if (!setting) {
         setting = await tx.systemSetting.create({
           data: {
-            id: this.defaultSettingsId,
+            companyId,
             currentCapital: new Prisma.Decimal(0),
             cashCapital: new Prisma.Decimal(0),
             bankCapital: new Prisma.Decimal(0),
@@ -206,7 +213,7 @@ export class CapitalService {
       }
 
       await tx.systemSetting.update({
-        where: { id: this.defaultSettingsId },
+        where: { companyId },
         data: {
           cashCapital: new Prisma.Decimal(cashBal.toFixed(2)),
           bankCapital: new Prisma.Decimal(bankBal.toFixed(2)),
@@ -215,6 +222,7 @@ export class CapitalService {
 
       const movement = await tx.capitalMovement.create({
         data: {
+          companyId,
           type: CapitalMovementType.INTERNAL_TRANSFER,
           amount: new Prisma.Decimal(transferAmount.toFixed(2)),
           balanceBefore: new Prisma.Decimal(totalBalance.toFixed(2)),
@@ -222,6 +230,8 @@ export class CapitalService {
           account: PaymentAccount.INTERNAL_TRANSFER,
           sourceAccount: dto.fromAccount,
           targetAccount: dto.toAccount,
+          receiptUrl: dto.receiptUrl?.trim() || null,
+          receiptKey: dto.receiptKey?.trim() || null,
           description:
             dto.description?.trim() ||
             `Transferencia de ${dto.fromAccount === PaymentAccount.CASH ? 'Efectivo' : 'Banco'} a ${dto.toAccount === PaymentAccount.CASH ? 'Efectivo' : 'Banco'}`,
@@ -238,6 +248,7 @@ export class CapitalService {
   }
 
   async recordSystemMovement(
+    companyId: string,
     type: CapitalMovementType,
     amountDelta: number,
     description: string,
@@ -245,7 +256,6 @@ export class CapitalService {
     referenceIdOrTx?: string | Prisma.TransactionClient,
     txClient?: Prisma.TransactionClient,
   ) {
-    // Normalizar argumentos para soportar firmas flexiblemente
     let account: PaymentAccount = PaymentAccount.CASH;
     let referenceId: string | undefined = undefined;
     let client: Prisma.TransactionClient | PrismaService = this.prisma;
@@ -273,16 +283,16 @@ export class CapitalService {
     }
 
     let setting = await client.systemSetting.findUnique({
-      where: { id: this.defaultSettingsId },
+      where: { companyId },
     });
 
     if (!setting) {
       setting = await client.systemSetting.create({
         data: {
-          id: this.defaultSettingsId,
-          legalName: 'DANIEL CAMILO HERRERA RENTERIA',
-          document: '1.078.000.069',
-          address: 'CR 8 CL 30 8 07',
+          companyId,
+          legalName: 'Compraventa de Oro',
+          document: '',
+          address: '',
           consecutivePrefix: 'DH-',
           currentCapital: new Prisma.Decimal(0.0),
           cashCapital: new Prisma.Decimal(0.0),
@@ -304,7 +314,7 @@ export class CapitalService {
     const balanceAfter = Number((cashBal + bankBal).toFixed(2));
 
     await client.systemSetting.update({
-      where: { id: this.defaultSettingsId },
+      where: { companyId },
       data: {
         cashCapital: new Prisma.Decimal(cashBal.toFixed(2)),
         bankCapital: new Prisma.Decimal(bankBal.toFixed(2)),
@@ -314,6 +324,7 @@ export class CapitalService {
 
     return client.capitalMovement.create({
       data: {
+        companyId,
         type,
         amount: new Prisma.Decimal(amountDelta.toFixed(2)),
         balanceBefore: new Prisma.Decimal(balanceBefore.toFixed(2)),
@@ -323,5 +334,23 @@ export class CapitalService {
         referenceId,
       },
     });
+  }
+
+  async uploadReceipt(file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('No se ha proporcionado ningún comprobante.');
+    }
+    const uploaded = await this.storageService.uploadFile(file, 'capital', '/api/capital/receipt/file');
+    return {
+      fileUrl: uploaded.fileUrl,
+      fileKey: uploaded.fileKey,
+      filename: file.originalname,
+      mimeType: file.mimetype,
+      sizeBytes: file.size,
+    };
+  }
+
+  async getReceiptStream(key: string) {
+    return this.storageService.getFileStream(key);
   }
 }

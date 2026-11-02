@@ -23,6 +23,7 @@ import { AuthGuard } from '../auth/auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { Public } from '../auth/public.decorator';
+import { CurrentCompanyId } from '../auth/current-user.decorator';
 
 @Controller('expenses')
 @UseGuards(AuthGuard, RolesGuard)
@@ -31,9 +32,13 @@ export class ExpensesController {
 
   @Post()
   @Roles(Role.ADMIN)
-  create(@Body() dto: CreateExpenseDto, @Req() req: Request) {
+  create(
+    @CurrentCompanyId() companyId: string,
+    @Body() dto: CreateExpenseDto,
+    @Req() req: Request,
+  ) {
     const userId = (req as any).user?.id;
-    return this.expensesService.create(dto, userId);
+    return this.expensesService.create(companyId, dto, userId);
   }
 
   @Post('upload-receipt')
@@ -44,8 +49,28 @@ export class ExpensesController {
   }
 
   @Public()
-  @Get('receipt/file')
-  async getReceiptFileByKey(@Query('key') key: string, @Res() res: Response) {
+  @Get(['receipt/file', 'receipt/file/{*key}'])
+  async getReceiptFileByKey(
+    @Req() req: any,
+    @Query('key') queryKey: string,
+    @Res() res: Response,
+  ) {
+    let key = queryKey;
+    if (!key && req.params?.key) {
+      key = Array.isArray(req.params.key) ? req.params.key.join('/') : req.params.key;
+    }
+    if (!key && req.originalUrl?.includes('/receipt/file/')) {
+      const part = req.originalUrl.split('/receipt/file/')[1]?.split('?')[0];
+      if (part) {
+        key = decodeURIComponent(part);
+      }
+    }
+    if (key) {
+      key = key.replace(/^\/+/, '');
+    }
+    if (!key) {
+      return res.status(404).send('Comprobante no especificado.');
+    }
     const { stream, mimeType, length } = await this.expensesService.getReceiptStream(key);
     const filename = key ? key.split('/').pop() || 'comprobante' : 'comprobante';
     if (mimeType) {
@@ -61,7 +86,7 @@ export class ExpensesController {
   @Public()
   @Get(':id/receipt/file')
   async getReceiptFileById(@Param('id') id: string, @Res() res: Response) {
-    const expense = await this.expensesService.findOne(id);
+    const expense = await this.expensesService.findOneByIdOnly(id);
     if (!expense.receiptKey) {
       return res.status(404).send('Comprobante no encontrado.');
     }
@@ -79,6 +104,7 @@ export class ExpensesController {
 
   @Get()
   findAll(
+    @CurrentCompanyId() companyId: string,
     @Query('batchId') batchId?: string,
     @Query('category') category?: ExpenseCategory,
     @Query('status') status?: ExpenseStatus,
@@ -86,7 +112,7 @@ export class ExpensesController {
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
   ) {
-    return this.expensesService.findAll({
+    return this.expensesService.findAll(companyId, {
       batchId,
       category,
       status,
@@ -97,19 +123,29 @@ export class ExpensesController {
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.expensesService.findOne(id);
+  findOne(
+    @CurrentCompanyId() companyId: string,
+    @Param('id') id: string,
+  ) {
+    return this.expensesService.findOne(companyId, id);
   }
 
   @Patch(':id')
   @Roles(Role.ADMIN)
-  update(@Param('id') id: string, @Body() dto: UpdateExpenseDto) {
-    return this.expensesService.update(id, dto);
+  update(
+    @CurrentCompanyId() companyId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateExpenseDto,
+  ) {
+    return this.expensesService.update(companyId, id, dto);
   }
 
   @Delete(':id')
   @Roles(Role.ADMIN)
-  remove(@Param('id') id: string) {
-    return this.expensesService.remove(id);
+  remove(
+    @CurrentCompanyId() companyId: string,
+    @Param('id') id: string,
+  ) {
+    return this.expensesService.remove(companyId, id);
   }
 }

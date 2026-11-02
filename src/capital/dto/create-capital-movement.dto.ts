@@ -27,6 +27,14 @@ export class CreateCapitalMovementDto {
   @IsOptional()
   @IsString()
   referenceId?: string;
+
+  @IsOptional()
+  @IsString()
+  receiptUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  receiptKey?: string;
 }
 
 export class TransferCapitalDto {
@@ -44,4 +52,12 @@ export class TransferCapitalDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsString()
+  receiptUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  receiptKey?: string;
 }

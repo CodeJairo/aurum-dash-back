@@ -5,22 +5,20 @@ import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class SettingsService {
-  private readonly defaultId = 'company_profile';
-
   constructor(private readonly prisma: PrismaService) {}
 
-  async getSettings() {
+  async getSettings(companyId: string) {
     let settings = await this.prisma.systemSetting.findUnique({
-      where: { id: this.defaultId },
+      where: { companyId },
     });
 
     if (!settings) {
       settings = await this.prisma.systemSetting.create({
         data: {
-          id: this.defaultId,
-          legalName: 'DANIEL CAMILO HERRERA RENTERIA',
-          document: '1.078.000.069',
-          address: 'CR 8 CL 30 8 07',
+          companyId,
+          legalName: 'Compraventa de Oro',
+          document: '',
+          address: '',
           phone: '',
           city: 'Quibdó',
           country: 'Colombia',
@@ -33,11 +31,11 @@ export class SettingsService {
     return settings;
   }
 
-  async updateSettings(dto: UpdateSettingsDto) {
-    const current = await this.getSettings();
+  async updateSettings(companyId: string, dto: UpdateSettingsDto) {
+    const current = await this.getSettings(companyId);
 
     return this.prisma.systemSetting.update({
-      where: { id: current.id },
+      where: { companyId },
       data: {
         legalName: dto.legalName !== undefined ? dto.legalName : current.legalName,
         document: dto.document !== undefined ? dto.document : current.document,
@@ -46,14 +44,24 @@ export class SettingsService {
         city: dto.city !== undefined ? dto.city : current.city,
         country: dto.country !== undefined ? dto.country : current.country,
         consecutivePrefix: dto.consecutivePrefix !== undefined ? dto.consecutivePrefix : current.consecutivePrefix,
+        siigoActive: dto.siigoActive !== undefined ? dto.siigoActive : current.siigoActive,
+        siigoApiUrl: dto.siigoApiUrl !== undefined ? dto.siigoApiUrl : current.siigoApiUrl,
+        siigoUsername: dto.siigoUsername !== undefined ? dto.siigoUsername : current.siigoUsername,
+        siigoAccessKey: dto.siigoAccessKey !== undefined ? dto.siigoAccessKey : current.siigoAccessKey,
+        siigoPartnerId: dto.siigoPartnerId !== undefined ? dto.siigoPartnerId : current.siigoPartnerId,
+        siigoDebitAccount: dto.siigoDebitAccount !== undefined ? dto.siigoDebitAccount : current.siigoDebitAccount,
+        siigoCreditAccount: dto.siigoCreditAccount !== undefined ? dto.siigoCreditAccount : current.siigoCreditAccount,
+        siigoRpDocumentId: dto.siigoRpDocumentId !== undefined ? dto.siigoRpDocumentId : current.siigoRpDocumentId,
+        siigoCashPaymentId: dto.siigoCashPaymentId !== undefined ? dto.siigoCashPaymentId : current.siigoCashPaymentId,
       },
     });
   }
 
-  async calculateNextConsecutiveNum(prefix: string, tx?: Prisma.TransactionClient): Promise<number> {
+  async calculateNextConsecutiveNum(companyId: string, prefix: string, tx?: Prisma.TransactionClient): Promise<number> {
     const client = tx || this.prisma;
     const purchases = await client.purchase.findMany({
       where: {
+        companyId,
         type: 'FORMAL',
         consecutive: {
           not: null,
@@ -80,10 +88,11 @@ export class SettingsService {
     return maxNum + 1;
   }
 
-  async calculateNextPurchaseNum(tx?: Prisma.TransactionClient): Promise<number> {
+  async calculateNextPurchaseNum(companyId: string, tx?: Prisma.TransactionClient): Promise<number> {
     const client = tx || this.prisma;
     const purchases = await client.purchase.findMany({
       where: {
+        companyId,
         type: 'ACCOUNTING',
         consecutive: {
           not: null,
@@ -106,10 +115,10 @@ export class SettingsService {
     return maxNum + 1;
   }
 
-  async getNextConsecutivePreview() {
-    const settings = await this.getSettings();
-    const nextNum = await this.calculateNextConsecutiveNum(settings.consecutivePrefix);
-    const nextPurchaseNum = await this.calculateNextPurchaseNum();
+  async getNextConsecutivePreview(companyId: string) {
+    const settings = await this.getSettings(companyId);
+    const nextNum = await this.calculateNextConsecutiveNum(companyId, settings.consecutivePrefix);
+    const nextPurchaseNum = await this.calculateNextPurchaseNum(companyId);
     return {
       prefix: settings.consecutivePrefix,
       nextNumber: nextNum,
@@ -124,13 +133,13 @@ export class SettingsService {
     };
   }
 
-  async reserveNextConsecutive(tx?: Prisma.TransactionClient): Promise<string> {
+  async reserveNextConsecutive(companyId: string, tx?: Prisma.TransactionClient): Promise<string> {
     const client = tx || this.prisma;
-    const settings = await this.getSettings();
-    const nextNumber = await this.calculateNextConsecutiveNum(settings.consecutivePrefix, client);
+    const settings = await this.getSettings(companyId);
+    const nextNumber = await this.calculateNextConsecutiveNum(companyId, settings.consecutivePrefix, client);
 
     await client.systemSetting.update({
-      where: { id: settings.id },
+      where: { companyId },
       data: {
         lastConsecutiveNum: nextNumber,
       },
@@ -139,13 +148,12 @@ export class SettingsService {
     return `${settings.consecutivePrefix}${nextNumber}`;
   }
 
-  async reserveNextPurchaseNum(tx?: Prisma.TransactionClient): Promise<number> {
+  async reserveNextPurchaseNum(companyId: string, tx?: Prisma.TransactionClient): Promise<number> {
     const client = tx || this.prisma;
-    const settings = await this.getSettings();
-    const nextNumber = await this.calculateNextPurchaseNum(client);
+    const nextNumber = await this.calculateNextPurchaseNum(companyId, client);
 
     await client.systemSetting.update({
-      where: { id: settings.id },
+      where: { companyId },
       data: {
         lastPurchaseNum: nextNumber,
       },

@@ -8,10 +8,10 @@ import { Prisma } from '@prisma/client';
 export class SalesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(dto: CreateSaleDto) {
+  async create(companyId: string, dto: CreateSaleDto) {
     if (dto.batchId) {
-      const batch = await this.prisma.batch.findUnique({
-        where: { id: dto.batchId },
+      const batch = await this.prisma.batch.findFirst({
+        where: { id: dto.batchId, companyId },
       });
       if (!batch) {
         throw new NotFoundException(`El lote con ID "${dto.batchId}" no existe.`);
@@ -23,6 +23,7 @@ export class SalesService {
 
     const sale = await this.prisma.sale.create({
       data: {
+        companyId,
         customer: dto.customer,
         description: dto.description,
         grossGrams: dto.grossGrams !== undefined ? new Prisma.Decimal(Number(dto.grossGrams).toFixed(4)) : null,
@@ -44,8 +45,8 @@ export class SalesService {
     return sale;
   }
 
-  async findAll(batchId?: string) {
-    const where: Prisma.SaleWhereInput = {};
+  async findAll(companyId: string, batchId?: string) {
+    const where: Prisma.SaleWhereInput = { companyId };
     if (batchId) {
       where.batchId = batchId;
     }
@@ -59,9 +60,9 @@ export class SalesService {
     });
   }
 
-  async findOne(id: string) {
-    const sale = await this.prisma.sale.findUnique({
-      where: { id },
+  async findOne(companyId: string, id: string) {
+    const sale = await this.prisma.sale.findFirst({
+      where: { id, companyId },
       include: {
         batch: true,
       },
@@ -74,8 +75,8 @@ export class SalesService {
     return sale;
   }
 
-  async update(id: string, dto: UpdateSaleDto) {
-    const existing = await this.findOne(id);
+  async update(companyId: string, id: string, dto: UpdateSaleDto) {
+    const existing = await this.findOne(companyId, id);
 
     if (existing.batch && existing.batch.status === 'CLOSED') {
       throw new BadRequestException('No se puede modificar una venta de un lote cerrado.');
@@ -85,8 +86,8 @@ export class SalesService {
     const newBatchId = dto.batchId !== undefined ? dto.batchId : previousBatchId;
 
     if (newBatchId && newBatchId !== previousBatchId) {
-      const targetBatch = await this.prisma.batch.findUnique({
-        where: { id: newBatchId },
+      const targetBatch = await this.prisma.batch.findFirst({
+        where: { id: newBatchId, companyId },
       });
       if (!targetBatch) {
         throw new NotFoundException(`El lote "${newBatchId}" no existe.`);
@@ -125,8 +126,8 @@ export class SalesService {
     return updated;
   }
 
-  async remove(id: string) {
-    const existing = await this.findOne(id);
+  async remove(companyId: string, id: string) {
+    const existing = await this.findOne(companyId, id);
     if (existing.batch && existing.batch.status === 'CLOSED') {
       throw new BadRequestException('No se puede eliminar una venta de un lote cerrado.');
     }

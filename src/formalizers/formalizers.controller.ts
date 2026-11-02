@@ -24,7 +24,8 @@ import { Public } from '../auth/public.decorator';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type {} from 'multer';
 import * as path from 'path';
-import type { Request, Response } from 'express';
+import type { Response } from 'express';
+import { CurrentCompanyId } from '../auth/current-user.decorator';
 
 @Controller('formalizers')
 @UseGuards(AuthGuard, RolesGuard)
@@ -32,13 +33,16 @@ export class FormalizersController {
   constructor(private readonly formalizersService: FormalizersService) {}
 
   @Get()
-  findAll(@Query('status') status?: 'AVAILABLE' | 'USED') {
-    return this.formalizersService.findAll(status);
+  findAll(
+    @CurrentCompanyId() companyId: string,
+    @Query('status') status?: 'AVAILABLE' | 'USED',
+  ) {
+    return this.formalizersService.findAll(companyId, status);
   }
 
   @Get('available')
-  findAvailable() {
-    return this.formalizersService.findAvailable();
+  findAvailable(@CurrentCompanyId() companyId: string) {
+    return this.formalizersService.findAvailable(companyId);
   }
 
   @Get('config/required-documents')
@@ -58,85 +62,86 @@ export class FormalizersController {
     let filename = doc.name || 'documento.pdf';
     const ext = path.extname(doc.fileKey);
     if (ext && !filename.toLowerCase().endsWith(ext.toLowerCase())) {
-      filename += ext;
+      filename = `${filename}${ext}`;
     }
 
-    res.setHeader('Content-Type', mimeType || 'application/octet-stream');
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${encodeURIComponent(filename)}"`,
-    );
+    if (mimeType) {
+      res.setHeader('Content-Type', mimeType);
+    }
     if (length) {
       res.setHeader('Content-Length', length);
     }
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${encodeURIComponent(filename)}"`,
+    );
     stream.pipe(res);
   }
 
   @Public()
-  @Get(['documents/file', 'documents/file/{*filePath}'])
-  async getFile(
-    @Param('filePath') filePath: string,
+  @Get(['documents/file', 'documents/file/{*key}'])
+  async getDocumentFile(
+    @Req() req: any,
     @Query('key') queryKey: string,
-    @Req() req: Request,
     @Res() res: Response,
   ) {
-    let fileKey = queryKey || filePath;
-    if (!fileKey) {
-      const marker = '/documents/file';
-      const idx = req.url.indexOf(marker);
-      if (idx !== -1) {
-        let sub = req.url.substring(idx + marker.length);
-        if (sub.startsWith('/')) {
-          sub = sub.substring(1);
-        }
-        fileKey = sub.split('?')[0];
+    let key = queryKey;
+    if (!key && req.params?.key) {
+      key = Array.isArray(req.params.key) ? req.params.key.join('/') : req.params.key;
+    }
+    if (!key && req.originalUrl?.includes('/documents/file/')) {
+      const part = req.originalUrl.split('/documents/file/')[1]?.split('?')[0];
+      if (part) {
+        key = decodeURIComponent(part);
       }
     }
-
-    if (fileKey) {
-      if (fileKey.startsWith('/')) {
-        fileKey = fileKey.substring(1);
-      }
-      try {
-        fileKey = decodeURIComponent(fileKey);
-      } catch {
-        // mantener como estaba si ya está decodificado
-      }
+    if (key) {
+      key = key.replace(/^\/+/, '');
     }
-
-    if (!fileKey) {
-      throw new NotFoundException('Archivo no especificado.');
+    if (!key) {
+      throw new NotFoundException('Clave de archivo no provista.');
     }
-
     const { stream, mimeType, length } =
-      await this.formalizersService.getDocumentFileStream(fileKey);
-    const filename = path.basename(fileKey);
+      await this.formalizersService.getDocumentFileStream(key);
 
-    const isImage = mimeType?.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(filename);
-    const disposition = isImage ? 'inline' : 'attachment';
-
-    res.setHeader('Content-Type', mimeType || (isImage ? 'image/jpeg' : 'application/octet-stream'));
-    res.setHeader(
-      'Content-Disposition',
-      `${disposition}; filename="${encodeURIComponent(filename)}"`,
-    );
+    const filename = path.basename(key);
+    if (mimeType) {
+      res.setHeader('Content-Type', mimeType);
+    }
     if (length) {
       res.setHeader('Content-Length', length);
     }
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${encodeURIComponent(filename)}"`,
+    );
     stream.pipe(res);
   }
 
+  @Post()
+  @Roles(Role.ADMIN)
+  create(
+    @CurrentCompanyId() companyId: string,
+    @Body() dto: CreateFormalizerDto,
+  ) {
+    return this.formalizersService.create(companyId, dto);
+  }
+
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.formalizersService.findOne(id);
+  findOne(
+    @CurrentCompanyId() companyId: string,
+    @Param('id') id: string,
+  ) {
+    return this.formalizersService.findOne(companyId, id);
   }
 
   @Patch(':id')
-  @Roles(Role.ADMIN, Role.BAREQUERO_OPERATOR)
+  @Roles(Role.ADMIN)
   update(
+    @CurrentCompanyId() companyId: string,
     @Param('id') id: string,
     @Body()
-    body: {
+    dto: {
       name?: string;
       phone?: string;
       address?: string;
@@ -144,34 +149,30 @@ export class FormalizersController {
       country?: string;
     },
   ) {
-    return this.formalizersService.update(id, body);
+    return this.formalizersService.update(companyId, id, dto);
   }
 
   @Post(':id/documents')
-  @Roles(Role.ADMIN, Role.BAREQUERO_OPERATOR)
+  @Roles(Role.ADMIN)
   @UseInterceptors(FileInterceptor('file'))
   uploadDocument(
+    @CurrentCompanyId() companyId: string,
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
     @Body('category') category: string,
-    @Body('name') customName?: string,
+    @Body('customName') customName?: string,
     @Body('period') period?: string,
   ) {
-    return this.formalizersService.addDocument(id, file, category, customName, period);
+    return this.formalizersService.addDocument(companyId, id, file, category, customName, period);
   }
 
   @Delete(':id/documents/:docId')
   @Roles(Role.ADMIN)
   deleteDocument(
+    @CurrentCompanyId() companyId: string,
     @Param('id') id: string,
     @Param('docId') docId: string,
   ) {
-    return this.formalizersService.deleteDocument(id, docId);
-  }
-
-  @Post()
-  @Roles(Role.ADMIN, Role.BAREQUERO_OPERATOR)
-  create(@Body() dto: CreateFormalizerDto) {
-    return this.formalizersService.create(dto);
+    return this.formalizersService.deleteDocument(companyId, id, docId);
   }
 }

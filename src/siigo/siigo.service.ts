@@ -53,50 +53,65 @@ export interface SiigoImportPurchasesResult {
   message: string;
 }
 
+export interface SiigoCompanyConfig {
+  apiUrl: string;
+  username: string;
+  accessKey: string;
+  partnerId: string;
+  rpDocumentId: number;
+  debitAccountCode: string;
+  creditAccountCode: string;
+  cashPaymentMethodId: number;
+  active: boolean;
+}
+
 @Injectable()
 export class SiigoService {
   private readonly logger = new Logger(SiigoService.name);
 
   constructor(private readonly prisma: PrismaService) {}
 
-  private get apiUrl(): string {
-    return (process.env.SIIGO_API_URL || 'https://api.siigo.com').replace(/\/+$/, '');
-  }
+  private async getCompanyConfig(companyId?: string): Promise<SiigoCompanyConfig> {
+    let setting: any = null;
+    if (companyId) {
+      setting = await this.prisma.systemSetting.findUnique({
+        where: { companyId },
+      });
+    }
 
-  private get username(): string {
-    return process.env.SIIGO_USERNAME || '';
-  }
+    const apiUrl = (setting?.siigoApiUrl || process.env.SIIGO_API_URL || 'https://api.siigo.com').replace(/\/+$/, '');
+    const username = (setting?.siigoUsername || process.env.SIIGO_USERNAME || '').trim();
+    const accessKey = (setting?.siigoAccessKey || process.env.SIIGO_ACCESS_KEY || '').trim();
+    const partnerId = (setting?.siigoPartnerId || process.env.SIIGO_PARTNER_ID || 'aurumDashApp').trim();
 
-  private get accessKey(): string {
-    return process.env.SIIGO_ACCESS_KEY || '';
-  }
+    const rpDocumentId = setting?.siigoRpDocumentId
+      ? Number(setting.siigoRpDocumentId)
+      : process.env.SIIGO_RP_DOCUMENT_ID
+        ? parseInt(process.env.SIIGO_RP_DOCUMENT_ID, 10)
+        : 31163;
 
-  private get partnerId(): string {
-    return process.env.SIIGO_PARTNER_ID || 'aurumDashApp';
-  }
+    const debitAccountCode = (setting?.siigoDebitAccount || process.env.SIIGO_DEBIT_ACCOUNT || '13309595').trim();
+    const creditAccountCode = (setting?.siigoCreditAccount || process.env.SIIGO_CREDIT_ACCOUNT || '11050501').trim();
 
-  /**
-   * Tipo de Comprobante RP configurado:
-   * 18990 = RP-1 Recibo de pago / Egreso Gastos (para fase de pruebas)
-   * 31163 = RP-2 Recibo de pago / Egreso Aportes (operación oficial con barequeros)
-   */
-  private get rpDocumentId(): number {
-    const customId = process.env.SIIGO_RP_DOCUMENT_ID;
-    return customId ? parseInt(customId, 10) : 31163;
-  }
+    const cashPaymentMethodId = setting?.siigoCashPaymentId
+      ? Number(setting.siigoCashPaymentId)
+      : process.env.SIIGO_CASH_PAYMENT_ID
+        ? parseInt(process.env.SIIGO_CASH_PAYMENT_ID, 10)
+        : 4375;
 
-  private get debitAccountCode(): string {
-    return process.env.SIIGO_DEBIT_ACCOUNT || '13309595';
-  }
+    const active = setting?.siigoActive ?? true;
 
-  private get creditAccountCode(): string {
-    return process.env.SIIGO_CREDIT_ACCOUNT || '11050501';
-  }
-
-  // ID del medio de pago en efectivo (4375 en Siigo Nube Atlas Capital)
-  private get cashPaymentMethodId(): number {
-    const customId = process.env.SIIGO_CASH_PAYMENT_ID;
-    return customId ? parseInt(customId, 10) : 4375;
+    return {
+      apiUrl,
+      username,
+      accessKey,
+      partnerId,
+      rpDocumentId,
+      debitAccountCode,
+      creditAccountCode,
+      cashPaymentMethodId,
+      active,
+    };
   }
 
   /**
@@ -136,24 +151,25 @@ export class SiigoService {
   /**
    * Obtiene un token Bearer (JWT) desde Siigo API usando native fetch
    */
-  async getAuthToken(): Promise<string> {
-    if (!this.username || !this.accessKey) {
+  async getAuthToken(companyId?: string): Promise<string> {
+    const config = await this.getCompanyConfig(companyId);
+    if (!config.username || !config.accessKey) {
       throw new HttpException(
-        'Faltan las credenciales SIIGO_USERNAME o SIIGO_ACCESS_KEY en el archivo .env del backend.',
+        'Faltan las credenciales SIIGO_USERNAME o SIIGO_ACCESS_KEY en la configuración de la empresa o en el archivo .env.',
         HttpStatus.BAD_REQUEST,
       );
     }
 
     try {
-      const response = await fetch(`${this.apiUrl}/auth`, {
+      const response = await fetch(`${config.apiUrl}/auth`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Partner-Id': this.partnerId,
+          'Partner-Id': config.partnerId,
         },
         body: JSON.stringify({
-          username: this.username,
-          access_key: this.accessKey,
+          username: config.username,
+          access_key: config.accessKey,
         }),
       });
 
@@ -184,17 +200,18 @@ export class SiigoService {
   /**
    * Consulta si un tercero/proveedor ya existe en Siigo por su identificación (GET seguro)
    */
-  async findCustomerByIdentification(identification: string): Promise<any | null> {
+  async findCustomerByIdentification(identification: string, companyId?: string): Promise<any | null> {
     const cleanDoc = (identification || '').replace(/[^\d]/g, '').trim();
     if (!cleanDoc) return null;
 
-    const token = await this.getAuthToken();
+    const config = await this.getCompanyConfig(companyId);
+    const token = await this.getAuthToken(companyId);
     try {
-      const response = await this.fetchWithRetry(`${this.apiUrl}/v1/customers?identification=${cleanDoc}`, {
+      const response = await this.fetchWithRetry(`${config.apiUrl}/v1/customers?identification=${cleanDoc}`, {
         method: 'GET',
         headers: {
           Authorization: `Bearer ${token}`,
-          'Partner-Id': this.partnerId,
+          'Partner-Id': config.partnerId,
           'Content-Type': 'application/json',
         },
       });
@@ -215,19 +232,22 @@ export class SiigoService {
   /**
    * Crea un tercero/proveedor en Siigo solo si no existe
    */
-  async ensureCustomerExists(params: {
-    identification: string;
-    fullName: string;
-    address?: string;
-    phone?: string;
-  }): Promise<{ id: string; identification: string }> {
+  async ensureCustomerExists(
+    params: {
+      identification: string;
+      fullName: string;
+      address?: string;
+      phone?: string;
+    },
+    companyId?: string,
+  ): Promise<{ id: string; identification: string }> {
     const cleanDoc = (params.identification || '').replace(/[^\d]/g, '').trim();
     if (!cleanDoc) {
       throw new HttpException('La identificación del barequero es obligatoria.', HttpStatus.BAD_REQUEST);
     }
 
     // 1. Verificar si ya existe en Siigo
-    const existing = await this.findCustomerByIdentification(cleanDoc);
+    const existing = await this.findCustomerByIdentification(cleanDoc, companyId);
     if (existing) {
       return {
         id: existing.id,
@@ -236,7 +256,8 @@ export class SiigoService {
     }
 
     // 2. Si no existe, crearlo como Persona Natural / Proveedor
-    const token = await this.getAuthToken();
+    const config = await this.getCompanyConfig(companyId);
+    const token = await this.getAuthToken(companyId);
     const nameParts = (params.fullName || 'Proveedor Barequero').trim().split(/\s+/);
     const firstName = nameParts[0] || 'Proveedor';
     const lastName = nameParts.slice(1).join(' ') || 'Barequero';
@@ -266,11 +287,11 @@ export class SiigoService {
     };
 
     try {
-      const createRes = await fetch(`${this.apiUrl}/v1/customers`, {
+      const createRes = await fetch(`${config.apiUrl}/v1/customers`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
-          'Partner-Id': this.partnerId,
+          'Partner-Id': config.partnerId,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(customerPayload),
@@ -297,9 +318,9 @@ export class SiigoService {
   /**
    * Sincroniza una compra de Barequero con Siigo creando un Recibo de Pago (RP)
    */
-  async syncPurchaseReceipt(purchaseId: string): Promise<SiigoSyncReceiptResult> {
-    const purchase = await this.prisma.purchase.findUnique({
-      where: { id: purchaseId },
+  async syncPurchaseReceipt(purchaseId: string, companyId?: string): Promise<SiigoSyncReceiptResult> {
+    const purchase = await this.prisma.purchase.findFirst({
+      where: { id: purchaseId, ...(companyId ? { companyId } : {}) },
     });
 
     if (!purchase) {
@@ -319,22 +340,25 @@ export class SiigoService {
       };
     }
 
+    const effectiveCompanyId = purchase.companyId || companyId;
+    const config = await this.getCompanyConfig(effectiveCompanyId);
+
     // 1. Asegurar existencia del Barequero
     const customer = await this.ensureCustomerExists({
       identification: purchase.vendorDoc || '',
       fullName: purchase.supplier || 'Barequero',
       address: purchase.vendorAddress || undefined,
       phone: purchase.vendorPhone || undefined,
-    });
+    }, effectiveCompanyId);
 
     // 2. Preparar payload del Recibo de Pago (RP) en modalidad Detailed (partida doble Débito / Crédito)
-    const token = await this.getAuthToken();
+    const token = await this.getAuthToken(effectiveCompanyId);
     const dateStr = purchase.purchaseDate.toISOString().slice(0, 10);
     const totalAmount = Math.round(Number(purchase.totalCost));
 
     const receiptPayload: SiigoPaymentReceiptDetailedPayload = {
       document: {
-        id: Number(this.rpDocumentId), // 31163 para RP-2 Aportes
+        id: Number(config.rpDocumentId), // 31163 para RP-2 Aportes o configurado
       },
       date: dateStr,
       type: 'Detailed',
@@ -345,7 +369,7 @@ export class SiigoService {
       items: [
         {
           account: {
-            code: String(this.debitAccountCode).trim(), // 13309595 Anticipos barequeros
+            code: String(config.debitAccountCode).trim(), // 13309595 Anticipos barequeros
             movement: 'Debit',
           },
           description: `Anticipo de aporte contrato barequero - Compra Nº ${purchase.consecutive || ''}`,
@@ -353,7 +377,7 @@ export class SiigoService {
         },
         {
           account: {
-            code: String(this.creditAccountCode).trim(), // 11050501 Caja General Efectivo
+            code: String(config.creditAccountCode).trim(), // 11050501 Caja General Efectivo
             movement: 'Credit',
           },
           description: `Salida de efectivo anticipo aporte barequero - Compra Nº ${purchase.consecutive || ''}`,
@@ -365,13 +389,13 @@ export class SiigoService {
 
     try {
       this.logger.log(
-        `Enviando comprobante RP-2 a Siigo para compra ${purchase.consecutive || purchase.id}: ${JSON.stringify(receiptPayload)}`,
+        `Enviando comprobante RP a Siigo para compra ${purchase.consecutive || purchase.id}: ${JSON.stringify(receiptPayload)}`,
       );
-      const response = await fetch(`${this.apiUrl}/v1/payment-receipts`, {
+      const response = await fetch(`${config.apiUrl}/v1/payment-receipts`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
-          'Partner-Id': this.partnerId,
+          'Partner-Id': config.partnerId,
           'Content-Type': 'application/json',
           'Idempotency-Key': `aurum-purchase-${purchase.id}`,
         },
@@ -419,28 +443,30 @@ export class SiigoService {
   /**
    * Prueba de diagnóstico de solo lectura (GET)
    */
-  async testConnection(): Promise<SiigoTestResult> {
-    if (!this.username || !this.accessKey) {
+  async testConnection(companyId?: string): Promise<SiigoTestResult> {
+    const config = await this.getCompanyConfig(companyId);
+
+    if (!config.username || !config.accessKey) {
       return {
         success: false,
-        message: 'No se encontraron SIIGO_USERNAME o SIIGO_ACCESS_KEY configurados en back/.env',
+        message: 'No se encontraron SIIGO_USERNAME o SIIGO_ACCESS_KEY configurados en los ajustes de la empresa ni en el archivo .env',
         authenticated: false,
-        partnerId: this.partnerId,
+        partnerId: config.partnerId,
       };
     }
 
     try {
-      const token = await this.getAuthToken();
+      const token = await this.getAuthToken(companyId);
       const headers = {
         Authorization: `Bearer ${token}`,
-        'Partner-Id': this.partnerId,
+        'Partner-Id': config.partnerId,
         'Content-Type': 'application/json',
       };
 
       // Consultar tipos de comprobantes RP (GET /v1/document-types?type=RP)
       let docTypes: Array<{ id: number; code: string; name: string }> = [];
       try {
-        const docTypesRes = await fetch(`${this.apiUrl}/v1/document-types?type=RP`, { headers });
+        const docTypesRes = await fetch(`${config.apiUrl}/v1/document-types?type=RP`, { headers });
         if (docTypesRes.ok) {
           const docTypesData: any = await docTypesRes.json();
           const list = Array.isArray(docTypesData) ? docTypesData : docTypesData?.results || [];
@@ -458,15 +484,15 @@ export class SiigoService {
         success: true,
         message: '¡Conexión exitosa con Siigo Nube!',
         authenticated: true,
-        partnerId: this.partnerId,
+        partnerId: config.partnerId,
         debitAccount: {
-          code: this.debitAccountCode,
+          code: config.debitAccountCode,
           name: 'Anticipo de aporte contrato barequero',
           active: true,
           found: true,
         },
         creditAccount: {
-          code: '11050501',
+          code: config.creditAccountCode,
           name: 'Caja general',
           active: true,
           found: true,
@@ -478,7 +504,7 @@ export class SiigoService {
         success: false,
         message: error?.message || 'Error inesperado al probar conexión con Siigo',
         authenticated: false,
-        partnerId: this.partnerId,
+        partnerId: config.partnerId,
         details: error?.toString(),
       };
     }
@@ -487,22 +513,23 @@ export class SiigoService {
   /**
    * Importa de forma segura (GET) los terceros/barequeros de Siigo a Aurum Dash
    */
-  async importBarequerosFromSiigo(): Promise<SiigoImportCustomersResult> {
-    const token = await this.getAuthToken();
+  async importBarequerosFromSiigo(companyId: string): Promise<SiigoImportCustomersResult> {
+    const config = await this.getCompanyConfig(companyId);
+    const token = await this.getAuthToken(companyId);
     let page = 1;
     const pageSize = 100;
     let totalInSiigo = 0;
     let imported = 0;
-    let updated = 0;
+    const updated = 0;
     let skipped = 0;
     let hasMore = true;
 
     while (hasMore) {
       try {
-        const res = await this.fetchWithRetry(`${this.apiUrl}/v1/customers?page=${page}&page_size=${pageSize}`, {
+        const res = await this.fetchWithRetry(`${config.apiUrl}/v1/customers?page=${page}&page_size=${pageSize}`, {
           headers: {
             Authorization: `Bearer ${token}`,
-            'Partner-Id': this.partnerId,
+            'Partner-Id': config.partnerId,
             'Content-Type': 'application/json',
           },
         });
@@ -555,9 +582,9 @@ export class SiigoService {
           const address = item.address?.address?.trim() || 'Quibdó, Chocó';
           const city = item.address?.city?.city_name || 'Quibdó-Chocó';
 
-          // Verificar si ya existe en la tabla formalizers
-          const existing = await this.prisma.formalizer.findUnique({
-            where: { document: cleanDoc },
+          // Verificar si ya existe en la tabla formalizers para esta empresa
+          const existing = await this.prisma.formalizer.findFirst({
+            where: { companyId, document: cleanDoc },
           });
 
           if (existing) {
@@ -567,6 +594,7 @@ export class SiigoService {
             // Crear nuevo en Aurum Dash
             await this.prisma.formalizer.create({
               data: {
+                companyId,
                 name: fullName,
                 document: cleanDoc,
                 address,
@@ -607,8 +635,9 @@ export class SiigoService {
    * Importa de forma segura (GET) las compras históricas a barequeros (RP-2) de Siigo Nube
    * sin alterar el saldo de capital/caja de la empresa.
    */
-  async importPurchasesFromSiigo(): Promise<SiigoImportPurchasesResult> {
-    const token = await this.getAuthToken();
+  async importPurchasesFromSiigo(companyId: string): Promise<SiigoImportPurchasesResult> {
+    const config = await this.getCompanyConfig(companyId);
+    const token = await this.getAuthToken(companyId);
     let page = 1;
     const pageSize = 50;
     let totalInSiigo = 0;
@@ -619,16 +648,16 @@ export class SiigoService {
 
     // Obtener configuración de empresa para prefijo oficial
     const settings = await this.prisma.systemSetting.findUnique({
-      where: { id: 'company_profile' },
+      where: { companyId },
     });
     const prefix = settings?.consecutivePrefix || 'DH-';
 
     while (hasMore) {
       try {
-        const res = await this.fetchWithRetry(`${this.apiUrl}/v1/payment-receipts?page=${page}&page_size=${pageSize}`, {
+        const res = await this.fetchWithRetry(`${config.apiUrl}/v1/payment-receipts?page=${page}&page_size=${pageSize}`, {
           headers: {
             Authorization: `Bearer ${token}`,
-            'Partner-Id': this.partnerId,
+            'Partner-Id': config.partnerId,
             'Content-Type': 'application/json',
           },
         });
@@ -647,8 +676,11 @@ export class SiigoService {
         }
 
         for (const item of results) {
-          // Filtrar únicamente los recibos de Aportes Barequeros (ID: 31163) o nombre RP-2
-          const isAportes = item.document?.id === 31163 || (item.name && item.name.startsWith('RP-2'));
+          // Filtrar únicamente los recibos de Aportes Barequeros configurados o RP-2
+          const isAportes =
+            item.document?.id === config.rpDocumentId ||
+            item.document?.id === 31163 ||
+            (item.name && item.name.startsWith('RP-2'));
           if (!isAportes) {
             skipped++;
             continue;
@@ -663,9 +695,10 @@ export class SiigoService {
           // Consecutivo homologado: DH-142 para RP-2-142
           const targetConsecutive = `${prefix}${receiptNumberDigits}`;
 
-          // Verificar si ya existe en Aurum Dash por receiptNumber o consecutivo
+          // Verificar si ya existe en Aurum Dash por receiptNumber o consecutivo en esta empresa
           const existing = await this.prisma.purchase.findFirst({
             where: {
+              companyId,
               OR: [
                 { siigoReceiptNumber: receiptNumber },
                 { consecutive: targetConsecutive },
@@ -695,8 +728,8 @@ export class SiigoService {
 
           // Buscar nombre en la tabla formalizers si ya fue importado
           if (rawDoc) {
-            const form = await this.prisma.formalizer.findUnique({
-              where: { document: rawDoc },
+            const form = await this.prisma.formalizer.findFirst({
+              where: { companyId, document: rawDoc },
             });
             if (form && form.name) {
               supplierName = form.name;
@@ -709,6 +742,7 @@ export class SiigoService {
           // Crear compra formal histórica en Aurum Dash con gramos en 0
           await this.prisma.purchase.create({
             data: {
+              companyId,
               type: 'FORMAL',
               consecutive: targetConsecutive,
               supplier: supplierName,
@@ -751,7 +785,7 @@ export class SiigoService {
     // Actualizar el contador oficial en SystemSetting si el máximo de Siigo es mayor
     if (settings && maxNumber > settings.lastConsecutiveNum) {
       await this.prisma.systemSetting.update({
-        where: { id: 'company_profile' },
+        where: { companyId },
         data: { lastConsecutiveNum: maxNumber },
       });
     }

@@ -15,11 +15,15 @@ import { FormalizersModule } from './formalizers/formalizers.module';
 import { StorageModule } from './storage/storage.module';
 import { MonthlySettlementsModule } from './monthly-settlements/monthly-settlements.module';
 import { SiigoModule } from './siigo/siigo.module';
+import { CompaniesModule } from './companies/companies.module';
+import { UsersModule } from './users/users.module';
 
 @Module({
   imports: [
     StorageModule,
     PrismaModule,
+    CompaniesModule,
+    UsersModule,
     PurchasesModule,
     BatchesModule,
     SalesModule,

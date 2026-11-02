@@ -31,7 +31,7 @@ export class MonthlySettlementsService {
     return { queryStart, queryEnd, storeStart, storeEnd };
   }
 
-  async preview(startDateStr: string, endDateStr: string) {
+  async preview(companyId: string, startDateStr: string, endDateStr: string) {
     if (!startDateStr || !endDateStr) {
       throw new BadRequestException('Se requieren las fechas de inicio y fin.');
     }
@@ -48,6 +48,7 @@ export class MonthlySettlementsService {
     // Buscar lotes vendidos y cerrados en el rango que no hayan sido liquidados aún
     const batches = await this.prisma.batch.findMany({
       where: {
+        companyId,
         status: 'CLOSED',
         monthlySettlementId: null,
         soldAt: {
@@ -79,6 +80,7 @@ export class MonthlySettlementsService {
     // Buscar gastos operativos registrados y pendientes en el rango de fechas
     const pendingExpenses = await this.prisma.expense.findMany({
       where: {
+        companyId,
         status: ExpenseStatus.PENDING,
         expenseDate: {
           gte: queryStart,
@@ -139,7 +141,7 @@ export class MonthlySettlementsService {
     };
   }
 
-  async create(dto: CreateMonthlySettlementDto, userId?: string) {
+  async create(companyId: string, dto: CreateMonthlySettlementDto, userId?: string) {
     const { queryStart, queryEnd, storeStart, storeEnd } = this.parseDateBoundaries(
       dto.startDate,
       dto.endDate,
@@ -154,6 +156,7 @@ export class MonthlySettlementsService {
     if (!batchIds || batchIds.length === 0) {
       const candidates = await this.prisma.batch.findMany({
         where: {
+          companyId,
           status: 'CLOSED',
           monthlySettlementId: null,
           soldAt: {
@@ -169,13 +172,14 @@ export class MonthlySettlementsService {
     const batches = await this.prisma.batch.findMany({
       where: {
         id: { in: batchIds },
+        companyId,
         status: 'CLOSED',
         monthlySettlementId: null,
       },
     });
 
     if (batches.length !== batchIds.length) {
-      throw new BadRequestException('Uno o más lotes seleccionados no están cerrados o ya fueron liquidados en otro periodo.');
+      throw new BadRequestException('Uno o más lotes seleccionados no pertenecen a la empresa, no están cerrados o ya fueron liquidados en otro periodo.');
     }
 
     let totalGrossSales = 0;
@@ -197,6 +201,7 @@ export class MonthlySettlementsService {
     if (!targetExpenseIds) {
       const candidates = await this.prisma.expense.findMany({
         where: {
+          companyId,
           status: ExpenseStatus.PENDING,
           expenseDate: {
             gte: queryStart,
@@ -211,6 +216,7 @@ export class MonthlySettlementsService {
     const registeredExpenses = await this.prisma.expense.findMany({
       where: {
         id: { in: targetExpenseIds },
+        companyId,
         status: ExpenseStatus.PENDING,
       },
     });
@@ -272,13 +278,14 @@ export class MonthlySettlementsService {
       }
     }
 
-    // Generar código consecutivo: LIQ-YYYY-MM-XXX
+    // Generar código consecutivo: LIQ-YYYY-MM-XXX por empresa
     const year = storeEnd.getFullYear();
     const month = String(storeEnd.getMonth() + 1).padStart(2, '0');
     const prefix = `LIQ-${year}-${month}-`;
 
     const count = await this.prisma.monthlySettlement.count({
       where: {
+        companyId,
         code: { startsWith: prefix },
       },
     });
@@ -287,6 +294,7 @@ export class MonthlySettlementsService {
     return this.prisma.$transaction(async (tx) => {
       const settlement = await tx.monthlySettlement.create({
         data: {
+          companyId,
           code,
           startDate: storeStart,
           endDate: storeEnd,
@@ -326,7 +334,7 @@ export class MonthlySettlementsService {
       // Marcar los gastos del módulo como liquidados y asociarlos a la liquidación
       if (registeredExpenses.length > 0) {
         await tx.expense.updateMany({
-          where: { id: { in: registeredExpenses.map((e) => e.id) } },
+          where: { id: { in: registeredExpenses.map((e) => e.id) }, companyId },
           data: {
             status: ExpenseStatus.LIQUIDATED,
             monthlySettlementId: settlement.id,
@@ -337,7 +345,7 @@ export class MonthlySettlementsService {
       // Asociar los lotes liquidados
       if (batchIds.length > 0) {
         await tx.batch.updateMany({
-          where: { id: { in: batchIds } },
+          where: { id: { in: batchIds }, companyId },
           data: { monthlySettlementId: settlement.id },
         });
       }
@@ -347,6 +355,7 @@ export class MonthlySettlementsService {
         if (payoutAccount === PaymentAccount.MIXED) {
           if (payoutCashAmount && payoutCashAmount > 0) {
             await this.capitalService.recordSystemMovement(
+              companyId,
               CapitalMovementType.PARTNER_PROFIT_PAYOUT,
               -payoutCashAmount,
               `Distribución utilidades (Efectivo) liquidación ${code} (${p1Name}, ${p2Name})`,
@@ -357,6 +366,7 @@ export class MonthlySettlementsService {
           }
           if (payoutBankAmount && payoutBankAmount > 0) {
             await this.capitalService.recordSystemMovement(
+              companyId,
               CapitalMovementType.PARTNER_PROFIT_PAYOUT,
               -payoutBankAmount,
               `Distribución utilidades (Banco) liquidación ${code} (${p1Name}, ${p2Name})`,
@@ -367,6 +377,7 @@ export class MonthlySettlementsService {
           }
         } else {
           await this.capitalService.recordSystemMovement(
+            companyId,
             CapitalMovementType.PARTNER_PROFIT_PAYOUT,
             -netProfit,
             `Distribución utilidades liquidación ${code} (${p1Name}, ${p2Name})`,
@@ -402,8 +413,9 @@ export class MonthlySettlementsService {
     });
   }
 
-  async findAll() {
+  async findAll(companyId: string) {
     return this.prisma.monthlySettlement.findMany({
+      where: { companyId },
       orderBy: { settlementDate: 'desc' },
       include: {
         expenses: true,
@@ -415,9 +427,9 @@ export class MonthlySettlementsService {
     });
   }
 
-  async findOne(id: string) {
-    const settlement = await this.prisma.monthlySettlement.findUnique({
-      where: { id },
+  async findOne(companyId: string, id: string) {
+    const settlement = await this.prisma.monthlySettlement.findFirst({
+      where: { id, companyId },
       include: {
         expenses: { orderBy: { createdAt: 'asc' } },
         registeredExpenses: { orderBy: { expenseDate: 'asc' } },
@@ -450,8 +462,8 @@ export class MonthlySettlementsService {
     return settlement;
   }
 
-  async remove(id: string) {
-    const settlement = await this.findOne(id);
+  async remove(companyId: string, id: string) {
+    const settlement = await this.findOne(companyId, id);
     const netProfit = Number(settlement.netProfit || 0);
     const payoutAccount = settlement.payoutAccount;
 
@@ -463,6 +475,7 @@ export class MonthlySettlementsService {
           const bankVal = Number(settlement.payoutBankAmount || 0);
           if (cashVal > 0) {
             await this.capitalService.recordSystemMovement(
+              companyId,
               CapitalMovementType.MANUAL_ADJUSTMENT,
               cashVal,
               `Reintegro de utilidades por anulación de liquidación ${settlement.code} (Efectivo)`,
@@ -473,6 +486,7 @@ export class MonthlySettlementsService {
           }
           if (bankVal > 0) {
             await this.capitalService.recordSystemMovement(
+              companyId,
               CapitalMovementType.MANUAL_ADJUSTMENT,
               bankVal,
               `Reintegro de utilidades por anulación de liquidación ${settlement.code} (Banco)`,
@@ -483,6 +497,7 @@ export class MonthlySettlementsService {
           }
         } else {
           await this.capitalService.recordSystemMovement(
+            companyId,
             CapitalMovementType.MANUAL_ADJUSTMENT,
             netProfit,
             `Reintegro de utilidades por anulación de liquidación ${settlement.code}`,
@@ -495,7 +510,7 @@ export class MonthlySettlementsService {
 
       // 2. Liberar gastos registrados para que queden PENDING nuevamente
       await tx.expense.updateMany({
-        where: { monthlySettlementId: id },
+        where: { monthlySettlementId: id, companyId },
         data: {
           status: ExpenseStatus.PENDING,
           monthlySettlementId: null,
@@ -504,7 +519,7 @@ export class MonthlySettlementsService {
 
       // 3. Desvincular lotes para que puedan ser reliquidados
       await tx.batch.updateMany({
-        where: { monthlySettlementId: id },
+        where: { monthlySettlementId: id, companyId },
         data: { monthlySettlementId: null },
       });
 

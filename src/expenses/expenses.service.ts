@@ -20,13 +20,14 @@ export class ExpensesService {
     private readonly storageService: StorageService,
   ) {}
 
-  async create(dto: CreateExpenseDto, userId?: string) {
-    if (dto.batchId) {
-      const batch = await this.prisma.batch.findUnique({
-        where: { id: dto.batchId },
+  async create(companyId: string, dto: CreateExpenseDto, userId?: string) {
+    const targetBatchId = dto.batchId?.trim() ? dto.batchId.trim() : null;
+    if (targetBatchId) {
+      const batch = await this.prisma.batch.findFirst({
+        where: { id: targetBatchId, companyId },
       });
       if (!batch) {
-        throw new NotFoundException(`El lote con ID "${dto.batchId}" no existe.`);
+        throw new NotFoundException(`El lote con ID "${targetBatchId}" no existe.`);
       }
       if (batch.status === 'CLOSED') {
         throw new BadRequestException('No se pueden registrar gastos en un lote cerrado.');
@@ -40,6 +41,7 @@ export class ExpensesService {
     return this.prisma.$transaction(async (tx) => {
       const expense = await tx.expense.create({
         data: {
+          companyId,
           description: dto.description.trim(),
           category,
           amount: new Prisma.Decimal(amountVal.toFixed(2)),
@@ -48,7 +50,7 @@ export class ExpensesService {
           receiptKey: dto.receiptKey?.trim() || null,
           status: ExpenseStatus.PENDING,
           expenseDate: dto.expenseDate ? new Date(`${dto.expenseDate.slice(0, 10)}T12:00:00`) : new Date(),
-          batchId: dto.batchId ?? null,
+          batchId: targetBatchId,
           createdById: userId ?? null,
         },
         include: {
@@ -60,6 +62,7 @@ export class ExpensesService {
 
       // Descontar inmediatamente de la cuenta de capital seleccionada (Caja o Banco)
       await this.capitalService.recordSystemMovement(
+        companyId,
         CapitalMovementType.EXPENSE_PAYMENT,
         -amountVal,
         `Gasto: ${expense.description} (${paymentAccount === PaymentAccount.BANK ? 'Banco' : 'Efectivo'})`,
@@ -68,15 +71,15 @@ export class ExpensesService {
         tx,
       );
 
-      if (dto.batchId) {
-        await this.recalculateBatchFinancials(dto.batchId, tx);
+      if (targetBatchId) {
+        await this.recalculateBatchFinancials(targetBatchId, tx);
       }
 
       return expense;
     });
   }
 
-  async findAll(options?: {
+  async findAll(companyId: string, options?: {
     batchId?: string;
     category?: ExpenseCategory;
     status?: ExpenseStatus;
@@ -84,7 +87,7 @@ export class ExpensesService {
     startDate?: string;
     endDate?: string;
   }) {
-    const where: Prisma.ExpenseWhereInput = {};
+    const where: Prisma.ExpenseWhereInput = { companyId };
 
     if (options?.batchId) {
       where.batchId = options.batchId;
@@ -125,15 +128,31 @@ export class ExpensesService {
     });
   }
 
-  async findOne(id: string) {
-    const expense = await this.prisma.expense.findUnique({
-      where: { id },
+  async findOne(companyId: string, id: string) {
+    const expense = await this.prisma.expense.findFirst({
+      where: { id, companyId },
       include: {
         batch: true,
         monthlySettlement: true,
         createdBy: {
           select: { id: true, name: true, email: true },
         },
+      },
+    });
+
+    if (!expense) {
+      throw new NotFoundException(`Gasto con ID "${id}" no encontrado.`);
+    }
+
+    return expense;
+  }
+
+  async findOneByIdOnly(id: string) {
+    const expense = await this.prisma.expense.findUnique({
+      where: { id },
+      include: {
+        batch: true,
+        monthlySettlement: true,
       },
     });
 
@@ -162,8 +181,8 @@ export class ExpensesService {
     return this.storageService.getFileStream(key);
   }
 
-  async update(id: string, dto: UpdateExpenseDto) {
-    const existing = await this.findOne(id);
+  async update(companyId: string, id: string, dto: UpdateExpenseDto) {
+    const existing = await this.findOne(companyId, id);
 
     if (existing.status === ExpenseStatus.LIQUIDATED) {
       throw new BadRequestException('No se puede modificar un gasto que ya fue liquidado en un cierre mensual.');
@@ -174,11 +193,16 @@ export class ExpensesService {
     }
 
     const previousBatchId = existing.batchId;
-    const newBatchId = dto.batchId !== undefined ? dto.batchId : previousBatchId;
+    const newBatchId =
+      dto.batchId !== undefined
+        ? dto.batchId?.trim()
+          ? dto.batchId.trim()
+          : null
+        : previousBatchId;
 
     if (newBatchId && newBatchId !== previousBatchId) {
-      const targetBatch = await this.prisma.batch.findUnique({
-        where: { id: newBatchId },
+      const targetBatch = await this.prisma.batch.findFirst({
+        where: { id: newBatchId, companyId },
       });
       if (!targetBatch) {
         throw new NotFoundException(`El lote "${newBatchId}" no existe.`);
@@ -214,8 +238,8 @@ export class ExpensesService {
     return updated;
   }
 
-  async remove(id: string) {
-    const existing = await this.findOne(id);
+  async remove(companyId: string, id: string) {
+    const existing = await this.findOne(companyId, id);
 
     if (existing.status === ExpenseStatus.LIQUIDATED) {
       throw new BadRequestException('No se puede eliminar un gasto que ya fue liquidado en un cierre mensual.');
@@ -241,6 +265,7 @@ export class ExpensesService {
     return this.prisma.$transaction(async (tx) => {
       // 1. Revertir el dinero al bolsillo de origen (Caja o Banco)
       await this.capitalService.recordSystemMovement(
+        companyId,
         CapitalMovementType.MANUAL_ADJUSTMENT,
         amountVal,
         `Reintegro por eliminación de gasto: ${existing.description}`,

@@ -8,6 +8,7 @@ datasource db {
 }
 
 enum Role {
+  SUPER_ADMIN
   ADMIN
   VIEWER
   PARTNER
@@ -66,8 +67,36 @@ enum ExpenseCategory {
   OTHER
 }
 
+model Company {
+  id                 String       @id @default(uuid())
+  name               String
+  nit                String?
+  slug               String       @unique
+  phone              String?
+  address            String?
+  city               String?
+  isActive           Boolean      @default(true)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  users              User[]
+  systemSetting      SystemSetting?
+  batches            Batch[]
+  purchases          Purchase[]
+  formalizers        Formalizer[]
+  barequeroDocuments BarequeroDocument[]
+  capitalMovements   CapitalMovement[]
+  sales              Sale[]
+  expenses           Expense[]
+  monthlySettlements MonthlySettlement[]
+
+  @@map("companies")
+}
+
 model User {
   id                 String       @id @default(uuid())
+  companyId          String?
+  company            Company?     @relation(fields: [companyId], references: [id], onDelete: Cascade)
   username           String?      @unique
   email              String?      @unique
   name               String
@@ -84,12 +113,15 @@ model User {
   batchesCreated     Batch[]      @relation("BatchCreator")
   monthlySettlementsCreated MonthlySettlement[] @relation("MonthlySettlementCreator")
 
+  @@index([companyId])
   @@map("users")
 }
 
 model Batch {
   id                 String       @id @default(uuid())
-  code               String       @unique
+  companyId          String
+  company            Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  code               String
   name               String
   description        String?
   status             BatchStatus  @default(OPEN)
@@ -140,13 +172,17 @@ model Batch {
   monthlySettlementId String?
   monthlySettlement   MonthlySettlement? @relation("MonthlySettlementBatches", fields: [monthlySettlementId], references: [id], onDelete: SetNull)
 
+  @@unique([companyId, code])
+  @@index([companyId])
   @@map("batches")
 }
 
 model Purchase {
   id           String       @id @default(uuid())
+  companyId    String
+  company      Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
   type         PurchaseType @default(ACCOUNTING)
-  consecutive  String?      @unique
+  consecutive  String?
 
   // Datos del Barequero / Proveedor
   supplier     String?
@@ -207,11 +243,15 @@ model Purchase {
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
+  @@unique([companyId, consecutive, type])
+  @@index([companyId])
   @@map("purchases")
 }
 
 model SystemSetting {
-  id                  String   @id @default("company_profile")
+  id                  String   @id @default(uuid())
+  companyId           String   @unique
+  company             Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   legalName           String   @default("DANIEL CAMILO HERRERA RENTERIA")
   document            String   @default("1.078.000.069")
   address             String   @default("CR 8 CL 30 8 07")
@@ -224,6 +264,18 @@ model SystemSetting {
   currentCapital      Decimal  @default(0.00) @db.Decimal(14, 2)
   cashCapital         Decimal  @default(0.00) @db.Decimal(14, 2)
   bankCapital         Decimal  @default(0.00) @db.Decimal(14, 2)
+
+  // Integración Siigo Nube por Empresa
+  siigoActive         Boolean  @default(false)
+  siigoApiUrl         String?  @default("https://api.siigo.com")
+  siigoUsername       String?
+  siigoAccessKey      String?
+  siigoPartnerId      String?  @default("AtlasCapital")
+  siigoDebitAccount   String?  @default("13309595")
+  siigoCreditAccount  String?  @default("11050501")
+  siigoRpDocumentId   Int?     @default(31163)
+  siigoCashPaymentId  Int?     @default(4375)
+
   updatedAt           DateTime @updatedAt
 
   @@map("system_settings")
@@ -231,8 +283,10 @@ model SystemSetting {
 
 model Formalizer {
   id            String           @id @default(uuid())
+  companyId     String
+  company       Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
   name          String
-  document      String           @unique
+  document      String
   address       String
   phone         String?
   city          String           @default("Quibdó-Chocó")
@@ -248,11 +302,15 @@ model Formalizer {
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
 
+  @@unique([companyId, document])
+  @@index([companyId])
   @@map("formalizers")
 }
 
 model BarequeroDocument {
   id           String     @id @default(uuid())
+  companyId    String
+  company      Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
   formalizerId String
   formalizer   Formalizer @relation(fields: [formalizerId], references: [id], onDelete: Cascade)
   name         String
@@ -264,27 +322,35 @@ model BarequeroDocument {
   sizeBytes    Int?
   createdAt    DateTime   @default(now())
 
+  @@index([companyId])
   @@map("barequero_documents")
 }
 
 model CapitalMovement {
   id            String              @id @default(uuid())
+  companyId     String
+  company       Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
   type          CapitalMovementType
   amount        Decimal             @db.Decimal(14, 2)
   balanceBefore Decimal             @db.Decimal(14, 2)
   balanceAfter  Decimal             @db.Decimal(14, 2)
   description   String
   referenceId   String?
+  receiptUrl    String?
+  receiptKey    String?
   account       PaymentAccount      @default(CASH)
   sourceAccount PaymentAccount?
   targetAccount PaymentAccount?
   createdAt     DateTime            @default(now())
 
+  @@index([companyId])
   @@map("capital_movements")
 }
 
 model Sale {
   id           String       @id @default(uuid())
+  companyId    String
+  company      Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
   customer     String?
   description  String?
 
@@ -305,11 +371,14 @@ model Sale {
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
+  @@index([companyId])
   @@map("sales")
 }
 
 model Expense {
   id           String          @id @default(uuid())
+  companyId    String
+  company      Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
   description  String
   category     ExpenseCategory @default(OPERATIONAL)
   amount       Decimal         @db.Decimal(14, 2)
@@ -333,6 +402,7 @@ model Expense {
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
 
+  @@index([companyId])
   @@map("expenses")
 }
 
@@ -363,7 +433,9 @@ model Settlement {
 
 model MonthlySettlement {
   id                    String                     @id @default(uuid())
-  code                  String                     @unique // Ej: LIQ-2026-10-001
+  companyId             String
+  company               Company                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  code                  String
   startDate             DateTime
   endDate               DateTime
   settlementDate        DateTime                   @default(now())
@@ -407,6 +479,8 @@ model MonthlySettlement {
   registeredExpenses    Expense[]                  @relation("MonthlySettlementPeriodExpenses")
   batches               Batch[]                    @relation("MonthlySettlementBatches")
 
+  @@unique([companyId, code])
+  @@index([companyId])
   @@map("monthly_settlements")
 }
 

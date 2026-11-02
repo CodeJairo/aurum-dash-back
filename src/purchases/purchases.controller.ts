@@ -24,6 +24,7 @@ import { AuthGuard } from '../auth/auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { Public } from '../auth/public.decorator';
+import { CurrentCompanyId } from '../auth/current-user.decorator';
 
 @Controller('purchases')
 @UseGuards(AuthGuard, RolesGuard)
@@ -37,21 +38,26 @@ export class PurchasesController {
   }
 
   @Get('next-consecutive')
-  getNextConsecutive() {
-    return this.purchasesService.getNextConsecutive();
+  getNextConsecutive(@CurrentCompanyId() companyId: string) {
+    return this.purchasesService.getNextConsecutive(companyId);
   }
 
   @Get()
   findAll(
+    @CurrentCompanyId() companyId: string,
     @Query('status') status?: 'unassigned' | 'assigned',
     @Query('type') type?: 'ACCOUNTING' | 'FORMAL',
   ) {
-    return this.purchasesService.findAll(status, type);
+    return this.purchasesService.findAll(companyId, status, type);
   }
 
   @Get(':id/receipt-excel')
-  async downloadReceiptExcel(@Param('id') id: string, @Res() res: Response) {
-    const { buffer, filename } = await this.purchasesService.generateReceiptExcel(id);
+  async downloadReceiptExcel(
+    @CurrentCompanyId() companyId: string,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const { buffer, filename } = await this.purchasesService.generateReceiptExcel(companyId, id);
     res.setHeader(
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -74,14 +80,15 @@ export class PurchasesController {
   @Roles(Role.ADMIN, Role.BAREQUERO_OPERATOR)
   @UseInterceptors(FileInterceptor('file'))
   uploadSignedReceipt(
+    @CurrentCompanyId() companyId: string,
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
   ) {
-    return this.purchasesService.uploadSignedReceipt(id, file);
+    return this.purchasesService.uploadSignedReceipt(companyId, id, file);
   }
 
   @Public()
-  @Get(':id/signed-receipt/file')
+  @Get([':id/signed-receipt/file', ':id/signed-receipt/file/{*key}'])
   async getSignedReceiptFile(@Param('id') id: string, @Res() res: Response) {
     const { stream, mimeType, length, filename } =
       await this.purchasesService.getSignedReceiptStream(id);
@@ -91,31 +98,43 @@ export class PurchasesController {
     if (length) {
       res.setHeader('Content-Length', length);
     }
-    // Inline para que el navegador pueda previsualizar PDFs o imágenes si lo desea
     res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
     stream.pipe(res);
   }
 
   @Delete(':id/signed-receipt')
   @Roles(Role.ADMIN)
-  removeSignedReceipt(@Param('id') id: string) {
-    return this.purchasesService.removeSignedReceipt(id);
+  removeSignedReceipt(
+    @CurrentCompanyId() companyId: string,
+    @Param('id') id: string,
+  ) {
+    return this.purchasesService.removeSignedReceipt(companyId, id);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.purchasesService.findOne(id);
+  findOne(
+    @CurrentCompanyId() companyId: string,
+    @Param('id') id: string,
+  ) {
+    return this.purchasesService.findOne(companyId, id);
   }
 
   @Patch(':id')
   @Roles(Role.ADMIN)
-  update(@Param('id') id: string, @Body() dto: UpdatePurchaseDto) {
-    return this.purchasesService.update(id, dto);
+  update(
+    @CurrentCompanyId() companyId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdatePurchaseDto,
+  ) {
+    return this.purchasesService.update(companyId, id, dto);
   }
 
   @Delete(':id')
   @Roles(Role.ADMIN)
-  remove(@Param('id') id: string) {
-    return this.purchasesService.remove(id);
+  remove(
+    @CurrentCompanyId() companyId: string,
+    @Param('id') id: string,
+  ) {
+    return this.purchasesService.remove(companyId, id);
   }
 }
