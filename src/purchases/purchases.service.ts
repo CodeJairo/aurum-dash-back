@@ -7,6 +7,7 @@ import { CapitalService } from '../capital/capital.service';
 import { StorageService } from '../storage/storage.service';
 import { CreatePurchaseDto, PricingModeDto, PurchaseTypeDto } from './dto/create-purchase.dto';
 import { UpdatePurchaseDto } from './dto/update-purchase.dto';
+import { UpdateHistoricalPurchaseDto } from './dto/update-historical-purchase.dto';
 import { CapitalMovementType, PaymentAccount, Prisma, Role } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
 import * as path from 'path';
@@ -111,6 +112,10 @@ export class PurchasesService {
         const recipientName = dto.recipientName || settings?.legalName || 'DANIEL CAMILO HERRERA RENTERIA';
         const recipientDoc = dto.recipientDoc || settings?.document || '1.078.000.069';
         const recipientAddress = dto.recipientAddress || settings?.address || 'CR 8 CL 30 8 07';
+
+        if (!dto.vendorPhotoUrl || !dto.vendorPhotoUrl.trim()) {
+          throw new BadRequestException('La fotografía del barequero es obligatoria para la recepción de material.');
+        }
 
         const purchase = await tx.purchase.create({
           data: {
@@ -502,6 +507,56 @@ export class PurchasesService {
     }
 
     return updated;
+  }
+
+  async updateHistorical(companyId: string, id: string, dto: UpdateHistoricalPurchaseDto) {
+    const existing = await this.findOne(companyId, id);
+
+    if (existing.formalizedBatchId) {
+      throw new BadRequestException(
+        `Esta recepción ya fue utilizada formalmente en el lote ${existing.formalizedBatch?.code || existing.formalizedBatchId} dentro de la plataforma y no se puede alterar su estado histórico.`,
+      );
+    }
+
+    const dataToUpdate: Prisma.PurchaseUpdateInput = {};
+
+    if (dto.grossGrams !== undefined) {
+      dataToUpdate.grossGrams = new Prisma.Decimal(Number(dto.grossGrams).toFixed(4));
+    }
+    if (dto.purity !== undefined) {
+      dataToUpdate.purity = dto.purity !== null ? new Prisma.Decimal(Number(dto.purity).toFixed(4)) : null;
+    }
+    if (dto.purityRaw !== undefined) {
+      dataToUpdate.purityRaw = dto.purityRaw;
+    }
+    if (dto.fineGrams !== undefined) {
+      dataToUpdate.fineGrams = new Prisma.Decimal(Number(dto.fineGrams).toFixed(4));
+    }
+    if (dto.pricePerGram !== undefined) {
+      dataToUpdate.pricePerGram = new Prisma.Decimal(Number(dto.pricePerGram).toFixed(2));
+    }
+    if (dto.totalCost !== undefined) {
+      dataToUpdate.totalCost = new Prisma.Decimal(Number(dto.totalCost).toFixed(2));
+    }
+    if (dto.isFormalizedHistorically !== undefined) {
+      dataToUpdate.isFormalizedHistorically = dto.isFormalizedHistorically;
+    }
+    if (dto.description !== undefined) {
+      dataToUpdate.description = dto.description;
+    }
+
+    return this.prisma.purchase.update({
+      where: { id },
+      data: dataToUpdate,
+      include: {
+        batch: {
+          select: { id: true, code: true, name: true, status: true },
+        },
+        formalizedBatch: {
+          select: { id: true, code: true, name: true, status: true },
+        },
+      },
+    });
   }
 
   async generateReceiptExcel(companyId: string, id: string): Promise<{ buffer: Buffer; filename: string }> {

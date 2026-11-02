@@ -281,6 +281,9 @@ export class BatchesService {
         if (p.formalizedBatchId && p.formalizedBatchId !== batch.id) {
           throw new BadRequestException(`La compra a barequero ${p.consecutive || p.id} ya fue utilizada en otro lote.`);
         }
+        if (p.isFormalizedHistorically) {
+          throw new BadRequestException(`La compra a barequero ${p.consecutive || p.id} está marcada como ya formalizada históricamente.`);
+        }
       }
 
       const totalBarequeroGross = formalPurchases.reduce((acc, p) => acc + Number(p.grossGrams), 0);
@@ -403,6 +406,8 @@ export class BatchesService {
         companyId,
         type: 'FORMAL',
         formalizedBatchId: null,
+        grossGrams: { gt: 0 },
+        isFormalizedHistorically: false,
       },
       orderBy: { consecutive: 'asc' },
     });

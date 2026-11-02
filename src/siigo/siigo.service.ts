@@ -347,39 +347,25 @@ export class SiigoService {
       phone: purchase.vendorPhone || undefined,
     }, effectiveCompanyId);
 
-    // 2. Preparar payload del Recibo de Pago (RP) en modalidad Detailed (partida doble Débito / Crédito)
+    // 2. Preparar payload del Recibo de Pago (RP) en modalidad AdvancePayment (Anticipo con medio de pago)
     const token = await this.getAuthToken(effectiveCompanyId);
     const dateStr = purchase.purchaseDate.toISOString().slice(0, 10);
     const totalAmount = Math.round(Number(purchase.totalCost));
 
-    const receiptPayload: SiigoPaymentReceiptDetailedPayload = {
+    const receiptPayload: SiigoPaymentReceiptAdvancePayload = {
       document: {
         id: Number(config.rpDocumentId), // 31163 para RP-2 Aportes o configurado
       },
       date: dateStr,
-      type: 'Detailed',
+      type: 'AdvancePayment',
       supplier: {
         identification: String(customer.identification).trim(),
         branch_office: 0,
       },
-      items: [
-        {
-          account: {
-            code: String(config.debitAccountCode).trim(), // 13309595 Anticipos barequeros
-            movement: 'Debit',
-          },
-          description: `Anticipo de aporte contrato barequero - Compra Nº ${purchase.consecutive || ''}`,
-          value: totalAmount,
-        },
-        {
-          account: {
-            code: String(config.creditAccountCode).trim(), // 11050501 Caja General Efectivo
-            movement: 'Credit',
-          },
-          description: `Salida de efectivo anticipo aporte barequero - Compra Nº ${purchase.consecutive || ''}`,
-          value: totalAmount,
-        },
-      ],
+      payment: {
+        id: Number(config.cashPaymentMethodId), // 4375 Efectivo
+        value: totalAmount,
+      },
       observations: `Anticipo de aporte contrato barequero - Compra Nº ${purchase.consecutive || ''}`,
     };
 

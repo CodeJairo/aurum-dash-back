@@ -154,6 +154,58 @@ export class StorageService implements OnModuleInit {
   }
 
   /**
+   * Sube un buffer en memoria a S3 o al almacenamiento local.
+   */
+  async uploadBuffer(
+    buffer: Buffer,
+    fileName: string,
+    mimeType: string = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    prefix: string = 'documents',
+    apiBasePath: string = '/api/formalizers/documents/file',
+  ): Promise<UploadResult> {
+    const ext = path.extname(fileName) || '.xlsx';
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+    const fileKey = `${prefix}/${path.basename(fileName, ext)}_${uniqueSuffix}${ext}`;
+
+    if (this.s3Client && this.bucketName) {
+      try {
+        await this.s3Client.send(
+          new PutObjectCommand({
+            Bucket: this.bucketName,
+            Key: fileKey,
+            Body: buffer,
+            ContentType: mimeType,
+          }),
+        );
+
+        const publicBase = process.env.S3_PUBLIC_URL || '';
+        const fileUrl = publicBase
+          ? `${publicBase}/${fileKey}`
+          : `${apiBasePath}?key=${encodeURIComponent(fileKey)}`;
+
+        return {
+          fileKey,
+          fileUrl,
+          sizeBytes: buffer.length,
+          mimeType,
+        };
+      } catch (s3Err: any) {
+        this.logger.warn(`Error al subir buffer a S3 (${s3Err?.message || s3Err}). Guardando en disco local.`);
+      }
+    }
+
+    const targetPath = path.join(this.localStorageDir, path.basename(fileKey));
+    await fs.promises.writeFile(targetPath, buffer);
+
+    return {
+      fileKey,
+      fileUrl: `${apiBasePath}?key=${encodeURIComponent(path.basename(fileKey))}`,
+      sizeBytes: buffer.length,
+      mimeType,
+    };
+  }
+
+  /**
    * Obtiene un flujo de lectura para streaming de un archivo desde S3 o disco local.
    */
   async getFileStream(fileKey: string): Promise<{ stream: Readable; mimeType?: string; length?: number }> {

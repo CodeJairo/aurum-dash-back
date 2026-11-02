@@ -3,7 +3,9 @@ import type {} from 'multer';
 import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from './storage.service';
+import { VinculacionExcelService } from './vinculacion-excel.service';
 import { CreateFormalizerDto } from './dto/create-formalizer.dto';
+import { CompleteVinculacionDto } from './dto/complete-vinculacion.dto';
 import { FormalizerStatus, Prisma } from '@prisma/client';
 import {
   REQUIRED_BAREQUERO_DOCUMENT_CATEGORIES,
@@ -15,6 +17,7 @@ export class FormalizersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storageService: StorageService,
+    private readonly vinculacionExcelService: VinculacionExcelService,
   ) {}
 
   async findAll(companyId: string, status?: 'AVAILABLE' | 'USED') {
@@ -47,6 +50,135 @@ export class FormalizersService {
 
   getRequiredDocumentsConfig() {
     return REQUIRED_BAREQUERO_DOCUMENT_CATEGORIES;
+  }
+
+  async findByDocument(companyId: string, document: string) {
+    const docClean = (document || '').replace(/[^\d]/g, '').trim();
+    if (!docClean) return null;
+
+    return this.prisma.formalizer.findFirst({
+      where: { companyId, document: docClean },
+      include: {
+        documents: {
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+    });
+  }
+
+  async completeVinculacion(companyId: string, idOrDoc: string, dto: CompleteVinculacionDto) {
+    const docClean = dto.document.replace(/[^\d]/g, '').trim();
+
+    let formalizer = await this.prisma.formalizer.findFirst({
+      where: {
+        companyId,
+        OR: [{ id: idOrDoc }, { document: docClean }],
+      },
+    });
+
+    const fullName = `${dto.firstName} ${dto.firstLastName} ${dto.secondLastName || ''}`.trim().toUpperCase();
+
+    if (!formalizer) {
+      formalizer = await this.prisma.formalizer.create({
+        data: {
+          companyId,
+          name: fullName,
+          document: docClean,
+          address: dto.address.trim(),
+          phone: dto.phone?.trim() || null,
+          city: dto.city?.trim() || 'Quibdó-Chocó',
+          country: 'Colombia',
+          status: FormalizerStatus.AVAILABLE,
+        },
+      });
+    }
+
+    const setting = await this.prisma.systemSetting.findUnique({
+      where: { companyId },
+    });
+    const defaultCity = setting?.city || 'Quibdó';
+
+    const excelBuffer = await this.vinculacionExcelService.generateVinculacionWorkbook(dto, defaultCity);
+
+    const fileName = `Formulario_Vinculacion_${docClean}.xlsx`;
+    const uploadRes = await this.storageService.uploadBuffer(
+      excelBuffer,
+      fileName,
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      `companies/${companyId}/barequeros/${docClean}`,
+      '/api/formalizers/documents/file',
+    );
+
+    const existingVinculacionDoc = await this.prisma.barequeroDocument.findFirst({
+      where: {
+        companyId,
+        formalizerId: formalizer.id,
+        category: 'FORMULARIO_VINCULACION',
+      },
+    });
+
+    if (existingVinculacionDoc) {
+      await this.prisma.barequeroDocument.update({
+        where: { id: existingVinculacionDoc.id },
+        data: {
+          fileKey: uploadRes.fileKey,
+          fileUrl: uploadRes.fileUrl,
+          sizeBytes: uploadRes.sizeBytes,
+          mimeType: uploadRes.mimeType,
+        },
+      });
+    } else {
+      await this.prisma.barequeroDocument.create({
+        data: {
+          companyId,
+          formalizerId: formalizer.id,
+          name: `Formulario Único de Vinculación - ${docClean}.xlsx`,
+          category: 'FORMULARIO_VINCULACION',
+          period: null,
+          fileKey: uploadRes.fileKey,
+          fileUrl: uploadRes.fileUrl,
+          mimeType: uploadRes.mimeType,
+          sizeBytes: uploadRes.sizeBytes,
+        },
+      });
+    }
+
+    return this.prisma.formalizer.update({
+      where: { id: formalizer.id },
+      data: {
+        name: fullName,
+        firstName: dto.firstName.trim().toUpperCase(),
+        firstLastName: dto.firstLastName.trim().toUpperCase(),
+        secondLastName: dto.secondLastName ? dto.secondLastName.trim().toUpperCase() : null,
+        idType: dto.idType || 'CC',
+        nationality: dto.nationality || 'Colombiana',
+        docIssueDate: dto.docIssueDate ? new Date(dto.docIssueDate) : null,
+        docIssuePlace: dto.docIssuePlace || null,
+        address: dto.address.trim(),
+        phone: dto.phone || null,
+        city: dto.city || formalizer.city,
+        miningMunicipality: dto.miningMunicipality || null,
+        miningDepartment: dto.miningDepartment || 'Chocó',
+        email: dto.email || null,
+        ciiuCode: dto.ciiuCode || '0729',
+        declaresRent: dto.declaresRent ?? false,
+        monthlyIncome: dto.monthlyIncome !== undefined && dto.monthlyIncome !== null ? new Prisma.Decimal(Number(dto.monthlyIncome).toFixed(2)) : null,
+        incomeConcept: dto.incomeConcept || null,
+        monthlyExpenses: dto.monthlyExpenses !== undefined && dto.monthlyExpenses !== null ? new Prisma.Decimal(Number(dto.monthlyExpenses).toFixed(2)) : null,
+        expenseConcept: dto.expenseConcept || null,
+        isPep: dto.isPep ?? false,
+        hasVinculacionForm: true,
+        vinculacionFormUrl: uploadRes.fileUrl,
+        vinculacionFormKey: uploadRes.fileKey,
+        vinculatedAt: new Date(),
+        vinculacionData: dto as any,
+      },
+      include: {
+        documents: {
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+    });
   }
 
   async create(companyId: string, dto: CreateFormalizerDto) {

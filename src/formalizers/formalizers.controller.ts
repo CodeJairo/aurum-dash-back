@@ -17,6 +17,7 @@ import {
 import { Role } from '@prisma/client';
 import { FormalizersService } from './formalizers.service';
 import { CreateFormalizerDto } from './dto/create-formalizer.dto';
+import { CompleteVinculacionDto } from './dto/complete-vinculacion.dto';
 import { AuthGuard } from '../auth/auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -43,6 +44,33 @@ export class FormalizersController {
   @Get('available')
   findAvailable(@CurrentCompanyId() companyId: string) {
     return this.formalizersService.findAvailable(companyId);
+  }
+
+  @Get('by-doc/:doc')
+  findByDocument(
+    @CurrentCompanyId() companyId: string,
+    @Param('doc') doc: string,
+  ) {
+    return this.formalizersService.findByDocument(companyId, doc);
+  }
+
+  @Post('vinculacion')
+  @Roles(Role.ADMIN, Role.BAREQUERO_OPERATOR)
+  completeVinculacionDirect(
+    @CurrentCompanyId() companyId: string,
+    @Body() dto: CompleteVinculacionDto,
+  ) {
+    return this.formalizersService.completeVinculacion(companyId, dto.document, dto);
+  }
+
+  @Post(':id/vinculacion')
+  @Roles(Role.ADMIN, Role.BAREQUERO_OPERATOR)
+  completeVinculacion(
+    @CurrentCompanyId() companyId: string,
+    @Param('id') id: string,
+    @Body() dto: CompleteVinculacionDto,
+  ) {
+    return this.formalizersService.completeVinculacion(companyId, id, dto);
   }
 
   @Get('config/required-documents')
@@ -119,7 +147,7 @@ export class FormalizersController {
   }
 
   @Post()
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.BAREQUERO_OPERATOR)
   create(
     @CurrentCompanyId() companyId: string,
     @Body() dto: CreateFormalizerDto,
@@ -136,7 +164,7 @@ export class FormalizersController {
   }
 
   @Patch(':id')
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.BAREQUERO_OPERATOR)
   update(
     @CurrentCompanyId() companyId: string,
     @Param('id') id: string,
@@ -153,7 +181,7 @@ export class FormalizersController {
   }
 
   @Post(':id/documents')
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.BAREQUERO_OPERATOR)
   @UseInterceptors(FileInterceptor('file'))
   uploadDocument(
     @CurrentCompanyId() companyId: string,

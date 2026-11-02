@@ -237,6 +237,9 @@ model Purchase {
   cashAmount         Decimal?       @db.Decimal(14, 2)
   bankAmount         Decimal?       @db.Decimal(14, 2)
 
+  // Control de formalización histórica (para compras importadas de Siigo con 0g)
+  isFormalizedHistorically Boolean   @default(false)
+
   createdById  String?
   createdBy    User?        @relation(fields: [createdById], references: [id])
 
@@ -292,6 +295,32 @@ model Formalizer {
   city          String           @default("Quibdó-Chocó")
   country       String           @default("Colombia")
   status        FormalizerStatus @default(AVAILABLE)
+
+  // Datos específicos para Formulario Único de Vinculación
+  firstName          String?
+  firstLastName      String?
+  secondLastName     String?
+  idType             String?          @default("CC")
+  nationality        String?          @default("Colombiana")
+  docIssueDate       DateTime?
+  docIssuePlace      String?
+  miningMunicipality String?
+  miningDepartment   String?          @default("Chocó")
+  email              String?
+  ciiuCode           String?          @default("0722")
+  declaresRent       Boolean?         @default(false)
+  monthlyIncome      Decimal?         @db.Decimal(14, 2)
+  incomeConcept      String?
+  monthlyExpenses    Decimal?         @db.Decimal(14, 2)
+  expenseConcept     String?
+  isPep              Boolean?         @default(false)
+
+  // Control documental de vinculación
+  hasVinculacionForm Boolean          @default(false)
+  vinculacionFormUrl String?
+  vinculacionFormKey String?
+  vinculatedAt       DateTime?
+  vinculacionData    Json?
 
   usedInBatchId String?
   usedInBatch   Batch?           @relation(fields: [usedInBatchId], references: [id], onDelete: SetNull)
