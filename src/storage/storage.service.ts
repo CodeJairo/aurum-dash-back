@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import type {} from 'multer';
 import {
   S3Client,
@@ -32,15 +32,33 @@ export class StorageService implements OnModuleInit {
       fs.mkdirSync(this.localStorageDir, { recursive: true });
     }
 
-    const bucket = process.env.S3_BUCKET || process.env.R2_BUCKET;
-    const accessKeyId = process.env.S3_ACCESS_KEY_ID || process.env.R2_ACCESS_KEY_ID;
-    const secretAccessKey = process.env.S3_SECRET_ACCESS_KEY || process.env.R2_SECRET_ACCESS_KEY;
-    const endpoint = process.env.S3_ENDPOINT || process.env.R2_ENDPOINT;
-    const region = process.env.S3_REGION || 'us-east-1';
+    const isProduction =
+      process.env.NODE_ENV === 'production' ||
+      !!process.env.RAILWAY_ENVIRONMENT;
+
+    let bucket = process.env.S3_BUCKET || process.env.R2_BUCKET;
+    let accessKeyId = process.env.S3_ACCESS_KEY_ID || process.env.R2_ACCESS_KEY_ID;
+    let secretAccessKey = process.env.S3_SECRET_ACCESS_KEY || process.env.R2_SECRET_ACCESS_KEY;
+    let endpoint = process.env.S3_ENDPOINT || process.env.R2_ENDPOINT;
+    let region = process.env.S3_REGION;
+
+    // Configuración inteligente por entorno:
+    if (isProduction) {
+      // En producción (Railway / AWS S3 oficial)
+      region = region || 'us-east-2';
+    } else {
+      // En desarrollo local: auto-detección hacia Silo (S3-compatible) si no hay variables completas
+      endpoint = endpoint || 'http://localhost:9000';
+      bucket = bucket || 'aurum-dash-local';
+      accessKeyId = accessKeyId || 'minioadmin';
+      secretAccessKey = secretAccessKey || 'minioadminpassword';
+      region = region || 'us-east-1';
+    }
+
     const forcePathStyle =
       process.env.S3_FORCE_PATH_STYLE !== undefined
         ? process.env.S3_FORCE_PATH_STYLE === 'true'
-        : !!endpoint;
+        : (!isProduction || !!endpoint);
 
     if (bucket && accessKeyId && secretAccessKey) {
       this.bucketName = bucket;
@@ -53,10 +71,13 @@ export class StorageService implements OnModuleInit {
         },
         forcePathStyle,
       });
-      this.logger.log(`Almacenamiento S3 inicializado (Bucket: ${bucket}, Endpoint: ${endpoint || 'AWS S3 Default'})`);
+      const providerName = isProduction ? 'AWS S3 Producción' : 'Silo Local (Docker)';
+      this.logger.log(
+        `Almacenamiento inicializado [${providerName}] (Bucket: ${bucket}, Endpoint: ${endpoint || 'AWS S3 Default'}, PathStyle: ${forcePathStyle})`,
+      );
     } else {
       this.logger.warn(
-        'Variables S3_BUCKET / S3_ACCESS_KEY_ID no encontradas. Utilizando almacenamiento local en disco (/uploads/documents)',
+        'Variables S3 no encontradas. Utilizando almacenamiento local en disco (/uploads/documents)',
       );
     }
   }
@@ -241,7 +262,7 @@ export class StorageService implements OnModuleInit {
       }
     }
 
-    throw new Error(`Archivo no encontrado: ${localBasename}`);
+    throw new NotFoundException(`Archivo no encontrado: ${localBasename}`);
   }
 
   private getMimeTypeFromExtension(filePath: string): string {

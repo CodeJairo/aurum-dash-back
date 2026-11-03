@@ -17,6 +17,24 @@ services:
       timeout: 5s
       retries: 5
 
+  storage:
+    image: pgsty/silo
+    container_name: aurum-dash-storage
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "9002:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadminpassword
+      MINIO_BROWSER_REDIRECT_URL: http://localhost:9002
+      MINIO_SERVER_URL: http://localhost:9000
+    volumes:
+      - aurum_storage_data:/data
+    command: server /data --console-address ":9001"
+
 volumes:
   aurum_pgdata:
+    driver: local
+  aurum_storage_data:
     driver: local
