@@ -233,6 +233,13 @@ async function seedAtlasCapital() {
 
 async function main() {
   console.log('🚀 Iniciando proceso maestro de semillas (Seeds) de AurumDash...');
+
+  // Migraciones seguras de columnas y categorías históricas
+  await prisma.$executeRawUnsafe(`ALTER TABLE "purchases" ALTER COLUMN "purityRaw" TYPE DECIMAL(8,3) USING "purityRaw"::DECIMAL(8,3)`).catch(() => {});
+  await prisma.$executeRawUnsafe(`ALTER TABLE "purchases" ALTER COLUMN "purity" TYPE DECIMAL(10,6) USING "purity"::DECIMAL(10,6)`).catch(() => {});
+  await prisma.$executeRawUnsafe(`ALTER TABLE "purchases" ALTER COLUMN "fineGrams" TYPE DECIMAL(14,6) USING "fineGrams"::DECIMAL(14,6)`).catch(() => {});
+  await prisma.$executeRawUnsafe(`UPDATE barequero_documents SET category = 'ANM' WHERE category = 'ARM'`).catch(() => {});
+
   await seedSuperAdmin();
   await seedAtlasCapital();
   console.log('🎉 Todos los seeds se completaron exitosamente.');

@@ -4,7 +4,7 @@
  */
 export const REQUIRED_BAREQUERO_DOCUMENT_CATEGORIES = [
   { key: 'CEDULA', label: 'Cédula', description: 'Cédula de Ciudadanía' },
-  { key: 'ARM', label: 'ARM', description: 'Autorización / ARM' },
+  { key: 'ANM', label: 'ANM', description: 'Autorización / ANM' },
   { key: 'ALCALDIA', label: 'Alcaldía', description: 'Certificado de Alcaldía' },
   { key: 'APORTES', label: 'Aportes', description: 'Comprobante de Aportes' },
   { key: 'RC', label: 'RC', description: 'Registro Civil / RC' },
@@ -30,6 +30,10 @@ export function evaluateBarequeroDocuments(
   // Compatibilidad hacia atrás: si tiene CEDULA_FRONT o CEDULA_POSTERIOR, cuenta como CEDULA
   if (existingSet.has('CEDULA_FRONT') || existingSet.has('CEDULA_POSTERIOR')) {
     existingSet.add('CEDULA');
+  }
+  // Compatibilidad hacia atrás: si tiene ARM, cuenta como ANM
+  if (existingSet.has('ARM')) {
+    existingSet.add('ANM');
   }
 
   const missing: string[] = [];
