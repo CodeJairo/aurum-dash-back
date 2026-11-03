@@ -83,6 +83,11 @@ export class UpdatePurchaseDto {
   pricePerGram?: number;
 
   @IsOptional()
+  @IsNumber()
+  @TransformMoney()
+  totalCost?: number;
+
+  @IsOptional()
   @IsEnum(PricingModeDto)
   pricingMode?: PricingModeDto;
 

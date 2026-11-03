@@ -52,32 +52,40 @@ export class PurchasesService {
       );
     }
 
-    // Normalización de Ley (si escribe 750 -> 0.750)
+    // Normalización de Ley sin redondeo prematuro (ej. 993.96 -> 0.99396)
     let purity: number | null = null;
     let purityRaw: number | null = null;
     if (dto.purity !== undefined && dto.purity !== null) {
       const rawVal = Number(dto.purity);
       if (rawVal > 1) {
-        purityRaw = Math.round(rawVal);
-        purity = Number((rawVal / 1000).toFixed(4));
+        purityRaw = Number(rawVal.toFixed(3));
+        purity = rawVal / 1000;
       } else {
-        purity = Number(rawVal.toFixed(4));
-        purityRaw = Math.round(rawVal * 1000);
+        purity = rawVal;
+        purityRaw = Number((rawVal * 1000).toFixed(3));
       }
     }
 
     let fineGrams: number;
     if (dto.fineGrams !== undefined && dto.fineGrams !== null) {
-      fineGrams = Number(Number(dto.fineGrams).toFixed(4));
+      fineGrams = Number(dto.fineGrams);
     } else if (purity !== null) {
-      fineGrams = Number((grossGrams * purity).toFixed(4));
+      fineGrams = grossGrams * purity;
     } else {
       fineGrams = grossGrams;
     }
 
     const pricingMode = dto.pricingMode ?? PricingModeDto.PER_FINE_GRAM;
-    const baseGrams = pricingMode === PricingModeDto.PER_FINE_GRAM ? fineGrams : grossGrams;
-    const totalCost = baseGrams * pricePerGram;
+    // Si viene totalCost explícito (override manual), se respeta; de lo contrario se calcula usando finos redondeados a 2 decimales
+    let totalCost: number;
+    if (dto.totalCost !== undefined && dto.totalCost !== null) {
+      totalCost = Number(dto.totalCost);
+    } else {
+      const baseGrams = pricingMode === PricingModeDto.PER_FINE_GRAM
+        ? Number(fineGrams.toFixed(2))
+        : Number(grossGrams.toFixed(2));
+      totalCost = Math.round(baseGrams * pricePerGram);
+    }
 
     if (dto.batchId) {
       const batch = await this.prisma.batch.findFirst({
@@ -135,8 +143,8 @@ export class PurchasesService {
             recipientAddress,
             description: dto.description,
             grossGrams: new Prisma.Decimal(grossGrams.toFixed(4)),
-            purity: purity !== null ? new Prisma.Decimal(purity.toFixed(4)) : null,
-            purityRaw,
+            purity: purity !== null ? new Prisma.Decimal(purity.toFixed(6)) : null,
+            purityRaw: purityRaw !== null ? new Prisma.Decimal(purityRaw.toFixed(3)) : null,
             fineGrams: new Prisma.Decimal(fineGrams.toFixed(4)),
             pricePerGram: new Prisma.Decimal(pricePerGram.toFixed(2)),
             pricingMode: pricingMode as any,
@@ -245,8 +253,8 @@ export class PurchasesService {
           supplier: dto.supplier,
           description: dto.description,
           grossGrams: new Prisma.Decimal(grossGrams.toFixed(4)),
-          purity: purity !== null ? new Prisma.Decimal(purity.toFixed(4)) : null,
-          purityRaw,
+          purity: purity !== null ? new Prisma.Decimal(purity.toFixed(6)) : null,
+          purityRaw: purityRaw !== null ? new Prisma.Decimal(purityRaw.toFixed(3)) : null,
           fineGrams: new Prisma.Decimal(fineGrams.toFixed(4)),
           pricePerGram: new Prisma.Decimal(pricePerGram.toFixed(2)),
           pricingMode: pricingMode as any,
@@ -439,16 +447,16 @@ export class PurchasesService {
     }
     
     let purity = existing.purity ? Number(existing.purity) : null;
-    let purityRaw = existing.purityRaw;
+    let purityRaw = existing.purityRaw ? Number(existing.purityRaw) : null;
     if (dto.purity !== undefined) {
       if (dto.purity !== null) {
         const rawVal = Number(dto.purity);
         if (rawVal > 1) {
-          purityRaw = Math.round(rawVal);
-          purity = Number((rawVal / 1000).toFixed(4));
+          purityRaw = Number(rawVal.toFixed(3));
+          purity = rawVal / 1000;
         } else {
-          purity = Number(rawVal.toFixed(4));
-          purityRaw = Math.round(rawVal * 1000);
+          purity = rawVal;
+          purityRaw = Number((rawVal * 1000).toFixed(3));
         }
       } else {
         purity = null;
@@ -458,18 +466,27 @@ export class PurchasesService {
 
     let fineGrams: number;
     if (dto.fineGrams !== undefined && dto.fineGrams !== null) {
-      fineGrams = Number(Number(dto.fineGrams).toFixed(4));
+      fineGrams = Number(dto.fineGrams);
     } else if (dto.purity !== undefined && purity !== null) {
-      fineGrams = Number((grossGrams * purity).toFixed(4));
+      fineGrams = grossGrams * purity;
     } else if (dto.grossGrams !== undefined && purity !== null) {
-      fineGrams = Number((grossGrams * purity).toFixed(4));
+      fineGrams = grossGrams * purity;
     } else {
       fineGrams = Number(existing.fineGrams);
     }
 
     const pricingMode = dto.pricingMode ?? (existing.pricingMode as PricingModeDto);
-    const baseGrams = pricingMode === PricingModeDto.PER_FINE_GRAM ? fineGrams : grossGrams;
-    const totalCost = baseGrams * pricePerGram;
+    let totalCost: number;
+    if (dto.totalCost !== undefined && dto.totalCost !== null) {
+      totalCost = Number(dto.totalCost);
+    } else if (dto.grossGrams !== undefined || dto.purity !== undefined || dto.fineGrams !== undefined || dto.pricePerGram !== undefined || dto.pricingMode !== undefined) {
+      const baseGrams = pricingMode === PricingModeDto.PER_FINE_GRAM
+        ? Number(fineGrams.toFixed(2))
+        : Number(grossGrams.toFixed(2));
+      totalCost = Math.round(baseGrams * pricePerGram);
+    } else {
+      totalCost = Number(existing.totalCost);
+    }
 
     const previousBatchId = existing.batchId;
     const newBatchId = dto.batchId !== undefined ? dto.batchId : previousBatchId;
@@ -486,8 +503,8 @@ export class PurchasesService {
         vendorCountry: dto.vendorCountry !== undefined ? dto.vendorCountry : existing.vendorCountry,
         description: dto.description !== undefined ? dto.description : existing.description,
         grossGrams: new Prisma.Decimal(grossGrams.toFixed(4)),
-        purity: purity !== null ? new Prisma.Decimal(purity.toFixed(4)) : null,
-        purityRaw,
+        purity: purity !== null ? new Prisma.Decimal(purity.toFixed(6)) : null,
+        purityRaw: purityRaw !== null ? new Prisma.Decimal(purityRaw.toFixed(3)) : null,
         fineGrams: new Prisma.Decimal(fineGrams.toFixed(4)),
         pricePerGram: new Prisma.Decimal(pricePerGram.toFixed(2)),
         pricingMode: pricingMode as any,
@@ -528,10 +545,10 @@ export class PurchasesService {
       dataToUpdate.grossGrams = new Prisma.Decimal(Number(dto.grossGrams).toFixed(4));
     }
     if (dto.purity !== undefined) {
-      dataToUpdate.purity = dto.purity !== null ? new Prisma.Decimal(Number(dto.purity).toFixed(4)) : null;
+      dataToUpdate.purity = dto.purity !== null ? new Prisma.Decimal(Number(dto.purity).toFixed(6)) : null;
     }
     if (dto.purityRaw !== undefined) {
-      dataToUpdate.purityRaw = dto.purityRaw;
+      dataToUpdate.purityRaw = dto.purityRaw !== null && dto.purityRaw !== undefined ? new Prisma.Decimal(Number(dto.purityRaw).toFixed(3)) : null;
     }
     if (dto.fineGrams !== undefined) {
       dataToUpdate.fineGrams = new Prisma.Decimal(Number(dto.fineGrams).toFixed(4));
@@ -606,18 +623,18 @@ export class PurchasesService {
       );
     }
 
-    // 3. Pesaje y Ley
+    // 3. Pesaje y Ley sin redondeo prematuro
     let purity = existing.purity ? Number(existing.purity) : null;
-    let purityRaw = existing.purityRaw;
+    let purityRaw = existing.purityRaw ? Number(existing.purityRaw) : null;
     if (dto.purity !== undefined) {
       if (dto.purity !== null) {
         const rawVal = Number(dto.purity);
         if (rawVal > 1) {
-          purityRaw = Math.round(rawVal);
-          purity = Number((rawVal / 1000).toFixed(4));
+          purityRaw = Number(rawVal.toFixed(3));
+          purity = rawVal / 1000;
         } else {
-          purity = Number(rawVal.toFixed(4));
-          purityRaw = Math.round(rawVal * 1000);
+          purity = rawVal;
+          purityRaw = Number((rawVal * 1000).toFixed(3));
         }
       } else {
         purity = null;
@@ -628,9 +645,9 @@ export class PurchasesService {
     // 4. Gramos finos
     let fineGrams: number;
     if (dto.fineGrams !== undefined && dto.fineGrams !== null) {
-      fineGrams = Number(Number(dto.fineGrams).toFixed(4));
+      fineGrams = Number(dto.fineGrams);
     } else if (purity !== null) {
-      fineGrams = Number((grossGrams * purity).toFixed(4));
+      fineGrams = grossGrams * purity;
     } else {
       fineGrams = Number(existing.fineGrams);
     }
@@ -639,13 +656,15 @@ export class PurchasesService {
     const pricingMode = dto.pricingMode ?? (existing.pricingMode as PricingModeDto);
     const pricePerGram = dto.pricePerGram !== undefined ? Number(dto.pricePerGram) : Number(existing.pricePerGram);
 
-    // 6. Total (Manual Override o Cálculo)
+    // 6. Total (Manual Override o Cálculo con finos a 2 decimales)
     let totalCost: number;
     if (dto.totalCost !== undefined && dto.totalCost !== null) {
       totalCost = Number(dto.totalCost);
     } else {
-      const baseGrams = pricingMode === PricingModeDto.PER_FINE_GRAM ? fineGrams : grossGrams;
-      totalCost = baseGrams * pricePerGram;
+      const baseGrams = pricingMode === PricingModeDto.PER_FINE_GRAM
+        ? Number(fineGrams.toFixed(2))
+        : Number(grossGrams.toFixed(2));
+      totalCost = Math.round(baseGrams * pricePerGram);
     }
 
     return this.prisma.purchase.update({
@@ -654,8 +673,8 @@ export class PurchasesService {
         material: dto.material !== undefined ? dto.material : existing.material,
         consecutive: finalConsecutive,
         grossGrams: new Prisma.Decimal(grossGrams.toFixed(4)),
-        purity: purity !== null ? new Prisma.Decimal(purity.toFixed(4)) : null,
-        purityRaw,
+        purity: purity !== null ? new Prisma.Decimal(purity.toFixed(6)) : null,
+        purityRaw: purityRaw !== null ? new Prisma.Decimal(purityRaw.toFixed(3)) : null,
         fineGrams: new Prisma.Decimal(fineGrams.toFixed(4)),
         pricingMode: pricingMode as any,
         pricePerGram: new Prisma.Decimal(pricePerGram.toFixed(2)),
@@ -726,16 +745,18 @@ export class PurchasesService {
     const y = dateObj.getFullYear();
     const formattedDate = `${d}/${m}/${y}`;
 
-    // Datos del Metal calculados a 2 decimales
+    // Datos del Metal calculados usando finos redondeados a 2 decimales para total exacto de liquidación
     const grossNum = Number(Number(purchase.grossGrams).toFixed(2));
-    const leyNum = purchase.purityRaw
+    const leyNum = purchase.purityRaw !== null && purchase.purityRaw !== undefined
       ? Number(purchase.purityRaw)
-      : purchase.purity
-        ? Math.round(Number(purchase.purity) * 1000)
+      : purchase.purity !== null && purchase.purity !== undefined
+        ? Number((Number(purchase.purity) * 1000).toFixed(3))
         : 750;
     const fineNum = Number(Number(purchase.fineGrams).toFixed(2));
     const priceNum = Number(purchase.pricePerGram);
-    const totalVal = Math.round(fineNum * priceNum);
+    const totalVal = purchase.totalCost !== null && purchase.totalCost !== undefined
+      ? Math.round(Number(purchase.totalCost))
+      : Math.round(fineNum * priceNum);
 
     if (isAccounting) {
       // Plantilla Compra Estándar (compra.xlsx - hoja compra)
@@ -753,7 +774,7 @@ export class PurchasesService {
 
       // BRUTOS: G9
       worksheet.getCell('G9').value = grossNum;
-      worksheet.getCell('G9').numFmt = '0.00';
+      worksheet.getCell('G9').numFmt = '0.00##';
 
       // LEY: G10
       worksheet.getCell('G10').value = leyNum;
@@ -763,7 +784,7 @@ export class PurchasesService {
 
       // GR FINOS: E15
       worksheet.getCell('E15').value = fineNum;
-      worksheet.getCell('E15').numFmt = '0.00';
+      worksheet.getCell('E15').numFmt = '0.00##';
 
       // VALOR GRAMO FINO: F15
       worksheet.getCell('F15').value = priceNum;
@@ -824,10 +845,10 @@ export class PurchasesService {
 
     // Datos del Metal:
     worksheet.getCell('G17').value = grossNum;
-    worksheet.getCell('G17').numFmt = '0.00';
+    worksheet.getCell('G17').numFmt = '0.00##';
     worksheet.getCell('G18').value = leyNum;
     worksheet.getCell('E23').value = fineNum;
-    worksheet.getCell('E23').numFmt = '0.00';
+    worksheet.getCell('E23').numFmt = '0.00##';
     worksheet.getCell('F23').value = priceNum;
     worksheet.getCell('G23').value = totalVal;
     worksheet.getCell('G26').value = totalVal;

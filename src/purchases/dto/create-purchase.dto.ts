@@ -124,6 +124,11 @@ export class CreatePurchaseDto {
   pricePerGram: number;
 
   @IsOptional()
+  @IsNumber()
+  @TransformMoney()
+  totalCost?: number;
+
+  @IsOptional()
   @IsEnum(PricingModeDto)
   pricingMode?: PricingModeDto = PricingModeDto.PER_FINE_GRAM;
 
