@@ -67,6 +67,11 @@ enum ExpenseCategory {
   OTHER
 }
 
+enum MaterialType {
+  GOLD
+  PLATINUM
+}
+
 model Company {
   id                 String       @id @default(uuid())
   name               String
@@ -125,6 +130,7 @@ model Batch {
   name               String
   description        String?
   status             BatchStatus  @default(OPEN)
+  material           MaterialType @default(GOLD)
 
   // Consolidaciones automáticas del lote
   totalGrossGrams    Decimal      @default(0.0000) @db.Decimal(12, 4)
@@ -182,6 +188,7 @@ model Purchase {
   companyId    String
   company      Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
   type         PurchaseType @default(ACCOUNTING)
+  material     MaterialType @default(GOLD)
   consecutive  String?
 
   // Datos del Barequero / Proveedor

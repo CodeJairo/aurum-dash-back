@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -21,6 +22,7 @@ import { PurchasesService } from './purchases.service';
 import { CreatePurchaseDto } from './dto/create-purchase.dto';
 import { UpdatePurchaseDto } from './dto/update-purchase.dto';
 import { UpdateHistoricalPurchaseDto } from './dto/update-historical-purchase.dto';
+import { UpdateMaterialDto } from './dto/update-material.dto';
 import { AuthGuard } from '../auth/auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -35,6 +37,11 @@ export class PurchasesController {
   @Post()
   @Roles(Role.ADMIN, Role.BAREQUERO_OPERATOR)
   create(@Body() dto: CreatePurchaseDto, @Req() req: any) {
+    if (req.user?.role === Role.BAREQUERO_OPERATOR && dto.type === 'ACCOUNTING') {
+      throw new ForbiddenException(
+        'Acceso denegado: el operador de barequeros solo tiene permitido registrar recepciones de material.',
+      );
+    }
     return this.purchasesService.create(dto, req.user);
   }
 
@@ -46,18 +53,27 @@ export class PurchasesController {
   @Get()
   findAll(
     @CurrentCompanyId() companyId: string,
+    @Req() req: any,
     @Query('status') status?: 'unassigned' | 'assigned',
     @Query('type') type?: 'ACCOUNTING' | 'FORMAL',
   ) {
-    return this.purchasesService.findAll(companyId, status, type);
+    const effectiveType = req.user?.role === Role.BAREQUERO_OPERATOR ? 'FORMAL' : type;
+    return this.purchasesService.findAll(companyId, status, effectiveType);
   }
 
   @Get(':id/receipt-excel')
   async downloadReceiptExcel(
     @CurrentCompanyId() companyId: string,
     @Param('id') id: string,
+    @Req() req: any,
     @Res() res: Response,
   ) {
+    const purchase = await this.purchasesService.findOne(companyId, id);
+    if (req.user?.role === Role.BAREQUERO_OPERATOR && purchase.type === 'ACCOUNTING') {
+      throw new ForbiddenException(
+        'Acceso restringido: no tiene permisos para descargar comprobantes de compras generales.',
+      );
+    }
     const { buffer, filename } = await this.purchasesService.generateReceiptExcel(companyId, id);
     res.setHeader(
       'Content-Type',
@@ -113,11 +129,35 @@ export class PurchasesController {
   }
 
   @Get(':id')
-  findOne(
+  async findOne(
     @CurrentCompanyId() companyId: string,
     @Param('id') id: string,
+    @Req() req: any,
   ) {
-    return this.purchasesService.findOne(companyId, id);
+    const purchase = await this.purchasesService.findOne(companyId, id);
+    if (req.user?.role === Role.BAREQUERO_OPERATOR && purchase.type === 'ACCOUNTING') {
+      throw new ForbiddenException(
+        'Acceso restringido: el operador de barequeros solo tiene permisos para consultar recepciones de material.',
+      );
+    }
+    return purchase;
+  }
+
+  @Patch(':id/material')
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  updateMaterial(
+    @CurrentCompanyId() companyId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateMaterialDto,
+    @Req() req: any,
+  ) {
+    const isSuperAdmin = req.user?.role === Role.SUPER_ADMIN || req.user?.isImpersonating === true;
+    if (!isSuperAdmin) {
+      throw new ForbiddenException(
+        'Solo el Super Administrador tiene autorización para cambiar el material de una compra.',
+      );
+    }
+    return this.purchasesService.updateMaterial(companyId, id, dto.material);
   }
 
   @Patch(':id/historical')

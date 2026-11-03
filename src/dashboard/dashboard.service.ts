@@ -21,28 +21,60 @@ export class DashboardService {
     let activeSales = 0;
     let activeExpenses = 0;
 
+    let goldActiveGrossGrams = 0;
+    let goldActiveFineGrams = 0;
+    let goldActiveInvestment = 0;
+
+    let platinumActiveGrossGrams = 0;
+    let platinumActiveFineGrams = 0;
+    let platinumActiveInvestment = 0;
+
     for (const b of openBatches) {
-      activeGrossGrams += Number(b.totalGrossGrams);
-      activeFineGrams += Number(b.totalFineGrams);
-      activeInvestment += Number(b.totalInvestment);
+      const gross = Number(b.totalGrossGrams);
+      const fine = Number(b.totalFineGrams);
+      const inv = Number(b.totalInvestment);
+
+      if (b.material === 'PLATINUM') {
+        platinumActiveGrossGrams += gross;
+        platinumActiveFineGrams += fine;
+        platinumActiveInvestment += inv;
+      } else {
+        goldActiveGrossGrams += gross;
+        goldActiveFineGrams += fine;
+        goldActiveInvestment += inv;
+      }
+
+      activeGrossGrams += gross;
+      activeFineGrams += fine;
+      activeInvestment += inv;
       activeSales += Number(b.totalSales);
       activeExpenses += Number(b.totalExpenses);
     }
 
-    // 2. Compras normales sin lote (disponibles en bóveda - excluye compras a barequeros)
-    const unassignedPurchasesAgg = await this.prisma.purchase.aggregate({
-      where: { companyId, batchId: null, type: 'ACCOUNTING' },
-      _sum: {
-        grossGrams: true,
-        fineGrams: true,
-        totalCost: true,
-      },
+    // 2. Compras normales sin lote (disponibles en bóveda por material)
+    const goldUnassignedAgg = await this.prisma.purchase.aggregate({
+      where: { companyId, batchId: null, type: 'ACCOUNTING', material: 'GOLD' },
+      _sum: { grossGrams: true, fineGrams: true, totalCost: true },
       _count: { id: true },
     });
 
-    const unassignedGross = Number(unassignedPurchasesAgg._sum.grossGrams || 0);
-    const unassignedFine = Number(unassignedPurchasesAgg._sum.fineGrams || 0);
-    const unassignedCost = Number(unassignedPurchasesAgg._sum.totalCost || 0);
+    const platinumUnassignedAgg = await this.prisma.purchase.aggregate({
+      where: { companyId, batchId: null, type: 'ACCOUNTING', material: 'PLATINUM' },
+      _sum: { grossGrams: true, fineGrams: true, totalCost: true },
+      _count: { id: true },
+    });
+
+    const goldVaultGross = Number(goldUnassignedAgg._sum.grossGrams || 0);
+    const goldVaultFine = Number(goldUnassignedAgg._sum.fineGrams || 0);
+    const goldVaultCost = Number(goldUnassignedAgg._sum.totalCost || 0);
+
+    const platinumVaultGross = Number(platinumUnassignedAgg._sum.grossGrams || 0);
+    const platinumVaultFine = Number(platinumUnassignedAgg._sum.fineGrams || 0);
+    const platinumVaultCost = Number(platinumUnassignedAgg._sum.totalCost || 0);
+
+    const unassignedGross = goldVaultGross + platinumVaultGross;
+    const unassignedFine = goldVaultFine + platinumVaultFine;
+    const unassignedCost = goldVaultCost + platinumVaultCost;
 
     // 3. Totales Históricos (Solo compras contables normales)
     const allPurchasesAgg = await this.prisma.purchase.aggregate({
@@ -183,7 +215,27 @@ export class DashboardService {
         vaultCapital: unassignedCost,
         activeCapitalInBatches: activeInvestment,
         unassignedCapital: unassignedCost,
-        unassignedPurchasesCount: unassignedPurchasesAgg._count.id,
+        unassignedPurchasesCount: Number(goldUnassignedAgg._count.id + platinumUnassignedAgg._count.id),
+        gold: {
+          vaultGrossGrams: goldVaultGross,
+          vaultFineGrams: goldVaultFine,
+          vaultCapital: goldVaultCost,
+          inBatchGrossGrams: goldActiveGrossGrams,
+          inBatchFineGrams: goldActiveFineGrams,
+          inBatchCapital: goldActiveInvestment,
+          totalGrossGrams: goldVaultGross + goldActiveGrossGrams,
+          totalFineGrams: goldVaultFine + goldActiveFineGrams,
+        },
+        platinum: {
+          vaultGrossGrams: platinumVaultGross,
+          vaultFineGrams: platinumVaultFine,
+          vaultCapital: platinumVaultCost,
+          inBatchGrossGrams: platinumActiveGrossGrams,
+          inBatchFineGrams: platinumActiveFineGrams,
+          inBatchCapital: platinumActiveInvestment,
+          totalGrossGrams: platinumVaultGross + platinumActiveGrossGrams,
+          totalFineGrams: platinumVaultFine + platinumActiveFineGrams,
+        },
       },
       profitability: {
         totalSales: totalHistoricalSales,
@@ -221,6 +273,7 @@ export class DashboardService {
         id: b.id,
         code: b.code,
         name: b.name,
+        material: b.material,
         grossGrams: Number(b.totalGrossGrams),
         fineGrams: Number(b.totalFineGrams),
         investment: Number(b.totalInvestment),

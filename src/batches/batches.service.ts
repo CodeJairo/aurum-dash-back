@@ -44,7 +44,7 @@ export class BatchesService {
       if (dto.purchaseIds && dto.purchaseIds.length > 0) {
         const candidatePurchases = await tx.purchase.findMany({
           where: { id: { in: dto.purchaseIds }, companyId },
-          select: { id: true, type: true },
+          select: { id: true, type: true, material: true },
         });
 
         if (candidatePurchases.length !== dto.purchaseIds.length) {
@@ -54,6 +54,17 @@ export class BatchesService {
         if (candidatePurchases.some((p) => p.type !== 'ACCOUNTING')) {
           throw new BadRequestException('Solo las compras normales se pueden asociar a un lote. Las compras a barequeros se usan para formalizar la venta.');
         }
+
+        const materials = new Set(candidatePurchases.map((p) => p.material));
+        if (materials.size > 1) {
+          throw new BadRequestException('No se pueden mezclar compras de diferentes materiales en un mismo lote.');
+        }
+        const batchMaterial = candidatePurchases[0]?.material || 'GOLD';
+
+        await tx.batch.update({
+          where: { id: batch.id },
+          data: { material: batchMaterial },
+        });
 
         await tx.purchase.updateMany({
           where: { id: { in: dto.purchaseIds }, companyId },
@@ -93,7 +104,7 @@ export class BatchesService {
       // Obtener compras para verificar si pertenecían a otro lote previo y validar que sean contables normales
       const purchases = await tx.purchase.findMany({
         where: { id: { in: dto.purchaseIds }, companyId },
-        select: { id: true, batchId: true, type: true },
+        select: { id: true, batchId: true, type: true, material: true },
       });
 
       if (purchases.length !== dto.purchaseIds.length) {
@@ -102,6 +113,12 @@ export class BatchesService {
 
       if (purchases.some((p) => p.type !== 'ACCOUNTING')) {
         throw new BadRequestException('Solo las compras normales se pueden asociar a un lote. Las compras a barequeros se usan para formalizar la venta.');
+      }
+
+      if (purchases.some((p) => p.material !== batch.material)) {
+        throw new BadRequestException(
+          `No se pueden anexar compras de material diferente al del lote (${batch.material === 'GOLD' ? 'Oro' : 'Platino'}).`,
+        );
       }
 
       const previousBatchIds = Array.from(
@@ -278,6 +295,11 @@ export class BatchesService {
         if (p.type !== 'FORMAL') {
           throw new BadRequestException(`La compra ${p.consecutive || p.id} no es de tipo Barequero.`);
         }
+        if (p.material !== batch.material) {
+          throw new BadRequestException(
+            `La recepción ${p.consecutive || p.id} es de ${p.material === 'GOLD' ? 'Oro' : 'Platino'} y no puede formalizar un lote de ${batch.material === 'GOLD' ? 'Oro' : 'Platino'}.`,
+          );
+        }
         if (p.formalizedBatchId && p.formalizedBatchId !== batch.id) {
           throw new BadRequestException(`La compra a barequero ${p.consecutive || p.id} ya fue utilizada en otro lote.`);
         }
@@ -405,6 +427,7 @@ export class BatchesService {
       where: {
         companyId,
         type: 'FORMAL',
+        material: batch.material,
         formalizedBatchId: null,
         grossGrams: { gt: 0 },
         isFormalizedHistorically: false,

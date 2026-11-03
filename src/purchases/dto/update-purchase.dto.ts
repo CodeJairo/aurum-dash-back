@@ -2,11 +2,16 @@ import { IsEnum, IsNumber, IsOptional, IsPositive, IsString, Max, Min } from 'cl
 import { Type } from 'class-transformer';
 import { PricingModeDto, PurchaseTypeDto } from './create-purchase.dto';
 import { TransformMoney } from '../../common/transformers/money.transformer';
+import { MaterialType } from '@prisma/client';
 
 export class UpdatePurchaseDto {
   @IsOptional()
   @IsEnum(PurchaseTypeDto)
   type?: PurchaseTypeDto;
+
+  @IsOptional()
+  @IsEnum(MaterialType)
+  material?: MaterialType;
 
   @IsOptional()
   @IsString()

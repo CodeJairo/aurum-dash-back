@@ -8,7 +8,7 @@ import { StorageService } from '../storage/storage.service';
 import { CreatePurchaseDto, PricingModeDto, PurchaseTypeDto } from './dto/create-purchase.dto';
 import { UpdatePurchaseDto } from './dto/update-purchase.dto';
 import { UpdateHistoricalPurchaseDto } from './dto/update-historical-purchase.dto';
-import { CapitalMovementType, PaymentAccount, Prisma, Role } from '@prisma/client';
+import { CapitalMovementType, MaterialType, PaymentAccount, Prisma, Role } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -121,6 +121,7 @@ export class PurchasesService {
           data: {
             companyId,
             type: 'FORMAL',
+            material: dto.material || MaterialType.GOLD,
             consecutive,
             supplier: dto.supplier,
             vendorDoc: dto.vendorDoc,
@@ -238,6 +239,7 @@ export class PurchasesService {
         data: {
           companyId,
           type: 'ACCOUNTING',
+          material: dto.material || MaterialType.GOLD,
           consecutive,
           supplier: dto.supplier,
           description: dto.description,
@@ -474,6 +476,7 @@ export class PurchasesService {
     const updated = await this.prisma.purchase.update({
       where: { id },
       data: {
+        material: dto.material !== undefined ? dto.material : existing.material,
         supplier: dto.supplier !== undefined ? dto.supplier : existing.supplier,
         vendorDoc: dto.vendorDoc !== undefined ? dto.vendorDoc : existing.vendorDoc,
         vendorAddress: dto.vendorAddress !== undefined ? dto.vendorAddress : existing.vendorAddress,
@@ -548,6 +551,35 @@ export class PurchasesService {
     return this.prisma.purchase.update({
       where: { id },
       data: dataToUpdate,
+      include: {
+        batch: {
+          select: { id: true, code: true, name: true, status: true },
+        },
+        formalizedBatch: {
+          select: { id: true, code: true, name: true, status: true },
+        },
+      },
+    });
+  }
+
+  async updateMaterial(companyId: string, id: string, material: MaterialType) {
+    const purchase = await this.findOne(companyId, id);
+
+    if (purchase.batchId) {
+      throw new BadRequestException(
+        `No se puede cambiar el material porque la compra ya está asignada al lote ${purchase.batch?.code || purchase.batchId}.`,
+      );
+    }
+
+    if (purchase.formalizedBatchId) {
+      throw new BadRequestException(
+        `No se puede cambiar el material porque esta recepción ya fue utilizada para formalizar el lote ${purchase.formalizedBatch?.code || purchase.formalizedBatchId}.`,
+      );
+    }
+
+    return this.prisma.purchase.update({
+      where: { id },
+      data: { material },
       include: {
         batch: {
           select: { id: true, code: true, name: true, status: true },
