@@ -68,4 +68,7 @@ export class UpdateSettingsDto {
   @IsOptional()
   @IsInt()
   siigoCashPaymentId?: number;
+
+  @IsOptional()
+  requiredDocuments?: any;
 }

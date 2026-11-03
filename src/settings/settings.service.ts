@@ -3,6 +3,13 @@ import { PrismaService } from '../prisma/prisma.service';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { Prisma } from '@prisma/client';
 
+export const DEFAULT_REQUIRED_DOCUMENTS = [
+  'Cédula de Ciudadanía',
+  'RUT Vigente',
+  'Certificado RUCOM / Barequero',
+  'Formulario Único de Vinculación',
+];
+
 @Injectable()
 export class SettingsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -24,8 +31,24 @@ export class SettingsService {
           country: 'Colombia',
           consecutivePrefix: 'DH-',
           lastConsecutiveNum: 0,
+          requiredDocuments: DEFAULT_REQUIRED_DOCUMENTS,
         },
       });
+    }
+
+    if (!settings.requiredDocuments || !Array.isArray(settings.requiredDocuments) || (settings.requiredDocuments as any[]).length === 0) {
+      (settings as any).requiredDocuments = DEFAULT_REQUIRED_DOCUMENTS;
+    } else {
+      // Filtrar 'Soporte de Pago / Recepción' y asegurar que los 4 fijos siempre estén presentes
+      const currentList = (settings.requiredDocuments as string[]).filter(
+        (d) => d !== 'Soporte de Pago / Recepción',
+      );
+      for (const fixed of DEFAULT_REQUIRED_DOCUMENTS) {
+        if (!currentList.includes(fixed)) {
+          currentList.push(fixed);
+        }
+      }
+      (settings as any).requiredDocuments = currentList;
     }
 
     return settings;
@@ -33,6 +56,18 @@ export class SettingsService {
 
   async updateSettings(companyId: string, dto: UpdateSettingsDto) {
     const current = await this.getSettings(companyId);
+
+    let sanitizedDocs = dto.requiredDocuments !== undefined ? dto.requiredDocuments : current.requiredDocuments;
+    if (sanitizedDocs && Array.isArray(sanitizedDocs)) {
+      sanitizedDocs = (sanitizedDocs as string[]).filter(
+        (d) => d !== 'Soporte de Pago / Recepción',
+      );
+      for (const fixed of DEFAULT_REQUIRED_DOCUMENTS) {
+        if (!sanitizedDocs.includes(fixed)) {
+          sanitizedDocs.unshift(fixed);
+        }
+      }
+    }
 
     return this.prisma.systemSetting.update({
       where: { companyId },
@@ -54,6 +89,7 @@ export class SettingsService {
         siigoCreditAccount: dto.siigoCreditAccount !== undefined ? dto.siigoCreditAccount : current.siigoCreditAccount,
         siigoRpDocumentId: dto.siigoRpDocumentId !== undefined ? dto.siigoRpDocumentId : current.siigoRpDocumentId,
         siigoCashPaymentId: dto.siigoCashPaymentId !== undefined ? dto.siigoCashPaymentId : current.siigoCashPaymentId,
+        requiredDocuments: sanitizedDocs,
       },
     });
   }
