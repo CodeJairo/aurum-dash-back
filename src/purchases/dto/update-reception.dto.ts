@@ -40,6 +40,10 @@ export class UpdateReceptionDto {
   consecutive?: string;
 
   @IsOptional()
+  @IsString({ message: 'La fecha de compra debe ser una cadena válida.' })
+  purchaseDate?: string;
+
+  @IsOptional()
   @IsString()
   description?: string;
 }

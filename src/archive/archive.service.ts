@@ -471,4 +471,27 @@ export class ArchiveService {
     lines.push('=================================================================');
     return lines.join('\n');
   }
+
+  /**
+   * Modifica la fecha de una compra para reubicarla correctamente en la línea de tiempo del archivo documental.
+   */
+  async updatePurchaseDate(companyId: string, purchaseId: string, purchaseDate: string) {
+    if (!purchaseDate) {
+      throw new BadRequestException('La fecha no puede estar vacía.');
+    }
+    const purchase = await this.prisma.purchase.findFirst({
+      where: { id: purchaseId, companyId },
+    });
+    if (!purchase) {
+      throw new NotFoundException('Compra no encontrada.');
+    }
+
+    const cleanDate = purchaseDate.slice(0, 10);
+    const newDate = new Date(`${cleanDate}T12:00:00`);
+
+    return this.prisma.purchase.update({
+      where: { id: purchaseId },
+      data: { purchaseDate: newDate },
+    });
+  }
 }

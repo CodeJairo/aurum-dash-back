@@ -310,7 +310,7 @@ export class BatchesService {
 
       const totalBarequeroGross = formalPurchases.reduce((acc, p) => acc + Number(p.grossGrams), 0);
       const diff = Math.abs(totalBarequeroGross - finalGrossGrams);
-      if (diff > 0.005) {
+      if (diff > 0.005 && !dto.allowDiscrepancy) {
         throw new BadRequestException(
           `Los gramos brutos de las compras a barequeros (${totalBarequeroGross.toFixed(2)} g) deben igualar exactamente los gramos brutos refundidos del lote (${finalGrossGrams.toFixed(2)} g). Diferencia: ${(totalBarequeroGross - finalGrossGrams).toFixed(2)} g.`,
         );
@@ -319,6 +319,8 @@ export class BatchesService {
       formalizerCount = formalPurchases.length;
     } else if (dto.formalizerIds && dto.formalizerIds.length > 0) {
       formalizerCount = dto.formalizerIds.length;
+    } else if (dto.allowDiscrepancy) {
+      formalizerCount = 0;
     } else {
       throw new BadRequestException('Debes seleccionar las compras a barequeros necesarias para formalizar la venta del lote.');
     }
@@ -386,7 +388,9 @@ export class BatchesService {
         data: {
           companyId,
           customer: `Venta Lote ${batch.code}`,
-          description: `Venta formalizada con ${formalizerCount} compras a barequeros (Gramos refundidos: ${finalGrossGrams.toFixed(2)} g brutos / ${finalFineGrams.toFixed(2)} g finos).`,
+          description: dto.allowDiscrepancy
+            ? `Venta con discrepancia / datos arbitrarios (${formalizerCount} compras a barequeros vinculadas, ${finalGrossGrams.toFixed(2)} g brutos / ${finalFineGrams.toFixed(2)} g finos).`
+            : `Venta formalizada con ${formalizerCount} compras a barequeros (Gramos refundidos: ${finalGrossGrams.toFixed(2)} g brutos / ${finalFineGrams.toFixed(2)} g finos).`,
           grossGrams: new Prisma.Decimal(finalGrossGrams.toFixed(4)),
           fineGrams: new Prisma.Decimal(finalFineGrams.toFixed(4)),
           pricePerGram: dto.salePricePerGram ? new Prisma.Decimal(Number(dto.salePricePerGram).toFixed(2)) : null,

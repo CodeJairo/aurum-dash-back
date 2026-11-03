@@ -75,6 +75,16 @@ export class ArchiveController {
     return this.archiveService.updateChecklist(companyId, purchaseId, checklist || []);
   }
 
+  @Patch('purchases/:purchaseId/date')
+  @Roles(Role.ADMIN, Role.BAREQUERO_OPERATOR)
+  updatePurchaseDate(
+    @CurrentCompanyId() companyId: string,
+    @Param('purchaseId') purchaseId: string,
+    @Body('purchaseDate') purchaseDate: string,
+  ) {
+    return this.archiveService.updatePurchaseDate(companyId, purchaseId, purchaseDate);
+  }
+
   @Post('purchases/:purchaseId/checklist/toggle-all')
   @Roles(Role.ADMIN, Role.BAREQUERO_OPERATOR)
   toggleAllChecklist(

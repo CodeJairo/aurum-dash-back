@@ -46,5 +46,9 @@ export class UpdateHistoricalPurchaseDto {
 
   @IsOptional()
   @IsString()
+  purchaseDate?: string;
+
+  @IsOptional()
+  @IsString()
   description?: string;
 }

@@ -562,6 +562,9 @@ export class PurchasesService {
     if (dto.isFormalizedHistorically !== undefined) {
       dataToUpdate.isFormalizedHistorically = dto.isFormalizedHistorically;
     }
+    if (dto.purchaseDate) {
+      dataToUpdate.purchaseDate = new Date(`${dto.purchaseDate.slice(0, 10)}T12:00:00`);
+    }
     if (dto.description !== undefined) {
       dataToUpdate.description = dto.description;
     }
@@ -672,6 +675,9 @@ export class PurchasesService {
       data: {
         material: dto.material !== undefined ? dto.material : existing.material,
         consecutive: finalConsecutive,
+        purchaseDate: dto.purchaseDate
+          ? new Date(`${dto.purchaseDate.slice(0, 10)}T12:00:00`)
+          : existing.purchaseDate,
         grossGrams: new Prisma.Decimal(grossGrams.toFixed(4)),
         purity: purity !== null ? new Prisma.Decimal(purity.toFixed(6)) : null,
         purityRaw: purityRaw !== null ? new Prisma.Decimal(purityRaw.toFixed(3)) : null,

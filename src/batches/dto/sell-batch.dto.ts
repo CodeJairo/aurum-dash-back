@@ -1,4 +1,4 @@
-import { ArrayNotEmpty, IsArray, IsEnum, IsNumber, IsOptional, IsPositive, IsString } from 'class-validator';
+import { ArrayNotEmpty, IsArray, IsBoolean, IsEnum, IsNumber, IsOptional, IsPositive, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
 import { TransformMoney } from '../../common/transformers/money.transformer';
 import { PaymentAccount } from '@prisma/client';
@@ -59,4 +59,8 @@ export class SellBatchDto {
   @IsPositive()
   @Type(() => Number)
   meltedFineGrams?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  allowDiscrepancy?: boolean;
 }
