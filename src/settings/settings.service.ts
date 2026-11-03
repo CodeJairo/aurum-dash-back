@@ -44,6 +44,7 @@ export class SettingsService {
         city: dto.city !== undefined ? dto.city : current.city,
         country: dto.country !== undefined ? dto.country : current.country,
         consecutivePrefix: dto.consecutivePrefix !== undefined ? dto.consecutivePrefix : current.consecutivePrefix,
+        lastConsecutiveNum: dto.lastConsecutiveNum !== undefined ? dto.lastConsecutiveNum : current.lastConsecutiveNum,
         siigoActive: dto.siigoActive !== undefined ? dto.siigoActive : current.siigoActive,
         siigoApiUrl: dto.siigoApiUrl !== undefined ? dto.siigoApiUrl : current.siigoApiUrl,
         siigoUsername: dto.siigoUsername !== undefined ? dto.siigoUsername : current.siigoUsername,
@@ -59,6 +60,9 @@ export class SettingsService {
 
   async calculateNextConsecutiveNum(companyId: string, prefix: string, tx?: Prisma.TransactionClient): Promise<number> {
     const client = tx || this.prisma;
+    const setting = await client.systemSetting.findUnique({ where: { companyId } });
+    let maxNum = setting?.lastConsecutiveNum ? Number(setting.lastConsecutiveNum) : 0;
+
     const purchases = await client.purchase.findMany({
       where: {
         companyId,
@@ -70,7 +74,6 @@ export class SettingsService {
       select: { consecutive: true },
     });
 
-    let maxNum = 0;
     const cleanPrefix = (prefix || 'DH-').toUpperCase();
     for (const p of purchases) {
       if (p.consecutive) {

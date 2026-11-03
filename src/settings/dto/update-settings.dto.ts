@@ -30,6 +30,10 @@ export class UpdateSettingsDto {
   consecutivePrefix?: string;
 
   @IsOptional()
+  @IsInt()
+  lastConsecutiveNum?: number;
+
+  @IsOptional()
   @IsBoolean()
   siigoActive?: boolean;
 

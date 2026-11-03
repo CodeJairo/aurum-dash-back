@@ -8,6 +8,7 @@ import { StorageService } from '../storage/storage.service';
 import { CreatePurchaseDto, PricingModeDto, PurchaseTypeDto } from './dto/create-purchase.dto';
 import { UpdatePurchaseDto } from './dto/update-purchase.dto';
 import { UpdateHistoricalPurchaseDto } from './dto/update-historical-purchase.dto';
+import { UpdateReceptionDto } from './dto/update-reception.dto';
 import { CapitalMovementType, MaterialType, PaymentAccount, Prisma, Role } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
 import * as path from 'path';
@@ -551,6 +552,116 @@ export class PurchasesService {
     return this.prisma.purchase.update({
       where: { id },
       data: dataToUpdate,
+      include: {
+        batch: {
+          select: { id: true, code: true, name: true, status: true },
+        },
+        formalizedBatch: {
+          select: { id: true, code: true, name: true, status: true },
+        },
+      },
+    });
+  }
+
+  async updateReception(companyId: string, id: string, dto: UpdateReceptionDto) {
+    const existing = await this.findOne(companyId, id);
+
+    if (existing.type !== 'FORMAL') {
+      throw new BadRequestException('Esta acción solo aplica para recepciones de material (barequeros).');
+    }
+
+    if (existing.formalizedBatchId) {
+      throw new BadRequestException(
+        `Esta recepción ya fue utilizada para formalizar el lote ${existing.formalizedBatch?.code || existing.formalizedBatchId} y no puede ser modificada.`,
+      );
+    }
+
+    // 1. Validar consecutivo único si se envió
+    let finalConsecutive = existing.consecutive;
+    if (dto.consecutive !== undefined) {
+      const cleanConsecutive = dto.consecutive.trim();
+      if (!cleanConsecutive) {
+        throw new BadRequestException('El consecutivo no puede estar vacío.');
+      }
+      if (cleanConsecutive.toUpperCase() !== (existing.consecutive || '').toUpperCase()) {
+        const duplicate = await this.prisma.purchase.findFirst({
+          where: {
+            companyId,
+            consecutive: { equals: cleanConsecutive, mode: 'insensitive' },
+            id: { not: id },
+          },
+        });
+        if (duplicate) {
+          throw new ConflictException(`El consecutivo "${cleanConsecutive}" ya está siendo utilizado por otra compra.`);
+        }
+      }
+      finalConsecutive = cleanConsecutive;
+    }
+
+    // 2. Gramos brutos
+    const grossGrams = dto.grossGrams !== undefined ? Number(dto.grossGrams) : Number(existing.grossGrams);
+    if (grossGrams > 70.9) {
+      throw new BadRequestException(
+        `El gramaje bruto máximo permitido para barequeros es 70.9 g. (Ingresado: ${grossGrams.toFixed(2)} g)`,
+      );
+    }
+
+    // 3. Pesaje y Ley
+    let purity = existing.purity ? Number(existing.purity) : null;
+    let purityRaw = existing.purityRaw;
+    if (dto.purity !== undefined) {
+      if (dto.purity !== null) {
+        const rawVal = Number(dto.purity);
+        if (rawVal > 1) {
+          purityRaw = Math.round(rawVal);
+          purity = Number((rawVal / 1000).toFixed(4));
+        } else {
+          purity = Number(rawVal.toFixed(4));
+          purityRaw = Math.round(rawVal * 1000);
+        }
+      } else {
+        purity = null;
+        purityRaw = null;
+      }
+    }
+
+    // 4. Gramos finos
+    let fineGrams: number;
+    if (dto.fineGrams !== undefined && dto.fineGrams !== null) {
+      fineGrams = Number(Number(dto.fineGrams).toFixed(4));
+    } else if (purity !== null) {
+      fineGrams = Number((grossGrams * purity).toFixed(4));
+    } else {
+      fineGrams = Number(existing.fineGrams);
+    }
+
+    // 5. Modalidad y Precio
+    const pricingMode = dto.pricingMode ?? (existing.pricingMode as PricingModeDto);
+    const pricePerGram = dto.pricePerGram !== undefined ? Number(dto.pricePerGram) : Number(existing.pricePerGram);
+
+    // 6. Total (Manual Override o Cálculo)
+    let totalCost: number;
+    if (dto.totalCost !== undefined && dto.totalCost !== null) {
+      totalCost = Number(dto.totalCost);
+    } else {
+      const baseGrams = pricingMode === PricingModeDto.PER_FINE_GRAM ? fineGrams : grossGrams;
+      totalCost = baseGrams * pricePerGram;
+    }
+
+    return this.prisma.purchase.update({
+      where: { id },
+      data: {
+        material: dto.material !== undefined ? dto.material : existing.material,
+        consecutive: finalConsecutive,
+        grossGrams: new Prisma.Decimal(grossGrams.toFixed(4)),
+        purity: purity !== null ? new Prisma.Decimal(purity.toFixed(4)) : null,
+        purityRaw,
+        fineGrams: new Prisma.Decimal(fineGrams.toFixed(4)),
+        pricingMode: pricingMode as any,
+        pricePerGram: new Prisma.Decimal(pricePerGram.toFixed(2)),
+        totalCost: new Prisma.Decimal(totalCost.toFixed(2)),
+        description: dto.description !== undefined ? dto.description : existing.description,
+      },
       include: {
         batch: {
           select: { id: true, code: true, name: true, status: true },

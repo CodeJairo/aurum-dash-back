@@ -23,6 +23,7 @@ import { CreatePurchaseDto } from './dto/create-purchase.dto';
 import { UpdatePurchaseDto } from './dto/update-purchase.dto';
 import { UpdateHistoricalPurchaseDto } from './dto/update-historical-purchase.dto';
 import { UpdateMaterialDto } from './dto/update-material.dto';
+import { UpdateReceptionDto } from './dto/update-reception.dto';
 import { AuthGuard } from '../auth/auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -171,6 +172,16 @@ export class PurchasesController {
     @Body() dto: UpdateHistoricalPurchaseDto,
   ) {
     return this.purchasesService.updateHistorical(companyId, id, dto);
+  }
+
+  @Patch(':id/reception')
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  updateReception(
+    @CurrentCompanyId() companyId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateReceptionDto,
+  ) {
+    return this.purchasesService.updateReception(companyId, id, dto);
   }
 
   @Patch(':id')
