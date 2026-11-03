@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import * as fs from 'fs';
 import * as path from 'path';
+import cookieParser from 'cookie-parser';
 
 // Cargar variables de .env en desarrollo si existen
 try {
@@ -51,6 +52,9 @@ async function bootstrap() {
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
   });
+
+  // Middleware para parsear cookies HttpOnly de sesión
+  app.use(cookieParser());
 
   // Prefijo global para la API REST
   app.setGlobalPrefix('api');

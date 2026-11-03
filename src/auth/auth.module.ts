@@ -10,8 +10,8 @@ import { RolesGuard } from './roles.guard';
   imports: [
     JwtModule.register({
       global: true,
-      secret: process.env.JWT_SECRET || 'aurum_dash_super_secret_dev_key_2026_oro',
-      signOptions: { expiresIn: '7d' },
+      secret: process.env.JWT_ACCESS_SECRET || process.env.JWT_SECRET || 'aurum_dash_super_secret_dev_key_2026_oro',
+      signOptions: { expiresIn: (process.env.JWT_ACCESS_EXPIRES_IN || '15m') as any },
     }),
   ],
   controllers: [AuthController],

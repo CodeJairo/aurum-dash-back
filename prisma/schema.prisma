@@ -109,6 +109,8 @@ model User {
   role               Role         @default(PARTNER)
   profitSharePercent Decimal      @default(50.00) @db.Decimal(5, 2)
   isActive           Boolean      @default(true)
+  tokenVersion       Int          @default(0)
+  lastLogin          DateTime?
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
 
@@ -117,6 +119,7 @@ model User {
   expenses           Expense[]
   batchesCreated     Batch[]      @relation("BatchCreator")
   monthlySettlementsCreated MonthlySettlement[] @relation("MonthlySettlementCreator")
+  refreshSessions    RefreshSession[]
 
   @@index([companyId])
   @@map("users")
@@ -529,4 +532,23 @@ model MonthlySettlementExpense {
   createdAt           DateTime          @default(now())
 
   @@map("monthly_settlement_expenses")
+}
+
+model RefreshSession {
+  id            String    @id @default(uuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jti           String    @unique
+  tokenHash     String
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  revokeReason  String?   // 'ROTATED', 'LOGOUT', 'USER_REVOKED', 'SUSPICIOUS_REUSE'
+  replacedByJti String?
+  ipAddress     String?
+  userAgent     String?
+  createdAt     DateTime  @default(now())
+
+  @@index([userId])
+  @@index([jti])
+  @@map("refresh_sessions")
 }
