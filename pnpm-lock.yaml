@@ -26,6 +26,9 @@ importers:
       '@prisma/client':
         specifier: ^6.4.1
         version: 6.19.3(prisma@6.19.3(typescript@6.0.3))(typescript@6.0.3)
+      archiver:
+        specifier: ^5.3.2
+        version: 5.3.2
       bcryptjs:
         specifier: ^3.0.3
         version: 3.0.3

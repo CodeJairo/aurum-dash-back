@@ -53,6 +53,9 @@ async function bootstrap() {
     credentials: true,
   });
 
+  // Confianza en proxies inversos (Railway, Cloudflare, etc.) para detección de IP y cookies seguras
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
+
   // Middleware para parsear cookies HttpOnly de sesión
   app.use(cookieParser());
 

@@ -17,6 +17,7 @@ import { MonthlySettlementsModule } from './monthly-settlements/monthly-settleme
 import { SiigoModule } from './siigo/siigo.module';
 import { CompaniesModule } from './companies/companies.module';
 import { UsersModule } from './users/users.module';
+import { ArchiveModule } from './archive/archive.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { UsersModule } from './users/users.module';
     FormalizersModule,
     MonthlySettlementsModule,
     SiigoModule,
+    ArchiveModule,
   ],
   controllers: [AppController],
   providers: [AppService],
