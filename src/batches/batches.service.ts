@@ -415,13 +415,24 @@ export class BatchesService {
     });
   }
 
-  async getFormalizationSuggestions(companyId: string, id: string, targetGrossOverride?: number) {
+  async getFormalizationSuggestions(
+    companyId: string,
+    id: string,
+    targetGrossOverride?: number,
+    targetFineOverride?: number,
+  ) {
     const batch = await this.findOne(companyId, id);
-    const targetGrams =
+    const targetGrossGrams =
       targetGrossOverride !== undefined && targetGrossOverride > 0
         ? targetGrossOverride
-        : Number(batch.totalGrossGrams);
-    const targetCents = Math.round(targetGrams * 100);
+        : Number(batch.meltedGrossGrams || batch.totalGrossGrams);
+    const targetFineGrams =
+      targetFineOverride !== undefined && targetFineOverride > 0
+        ? targetFineOverride
+        : Number(batch.meltedFineGrams || batch.totalFineGrams);
+
+    const targetGrossCents = Math.round(targetGrossGrams * 100);
+    const targetFineCents = Math.round(targetFineGrams * 100);
 
     const availablePurchases = await this.prisma.purchase.findMany({
       where: {
@@ -440,48 +451,151 @@ export class BatchesService {
       consecutive: p.consecutive || 'DH-?',
       supplier: p.supplier || 'Barequero',
       grossGrams: Number(p.grossGrams),
-      cents: Math.round(Number(p.grossGrams) * 100),
+      fineGrams: Number(p.fineGrams),
+      centsGross: Math.round(Number(p.grossGrams) * 100),
+      centsFine: Math.round(Number(p.fineGrams) * 100),
       raw: p,
     }));
 
-    const combinations: Array<{
+    const exactCombinations: Array<{
       purchaseIds: string[];
       consecutives: string[];
-      totalGrams: number;
+      totalGrossGrams: number;
+      totalFineGrams: number;
       count: number;
     }> = [];
 
-    function search(index: number, currentSum: number, currentSelection: typeof items) {
-      if (combinations.length >= 10) return;
-      if (currentSum === targetCents) {
-        combinations.push({
+    type ClosestMatch = {
+      selection: typeof items;
+      sumGrossCents: number;
+      sumFineCents: number;
+      deficitCents: number;
+    };
+
+    let bestClosest: ClosestMatch | null = null;
+
+    let iterations = 0;
+    const maxIterations = 60000;
+
+    function search(
+      index: number,
+      currentGross: number,
+      currentFine: number,
+      currentSelection: typeof items,
+    ) {
+      iterations++;
+      if (iterations > maxIterations) return;
+      if (exactCombinations.length >= 10) return;
+
+      // Evaluar coincidencia exacta de brutos y finos (tolerancia de 1 centésima de gramo)
+      const matchesGross = Math.abs(currentGross - targetGrossCents) <= 1;
+      const matchesFine = Math.abs(currentFine - targetFineCents) <= 1;
+
+      if (matchesGross && matchesFine && currentSelection.length > 0) {
+        exactCombinations.push({
           purchaseIds: currentSelection.map((i) => i.id),
           consecutives: currentSelection.map((i) => i.consecutive),
-          totalGrams: Number((currentSum / 100).toFixed(2)),
+          totalGrossGrams: Number((currentGross / 100).toFixed(2)),
+          totalFineGrams: Number((currentFine / 100).toFixed(2)),
           count: currentSelection.length,
         });
         return;
       }
-      if (currentSum > targetCents || index >= items.length) return;
+
+      // Evaluar como candidato de combinación más cercana sin pasarse
+      if (currentGross <= targetGrossCents && currentFine <= targetFineCents && currentSelection.length > 0) {
+        const deficit = (targetGrossCents - currentGross) + (targetFineCents - currentFine);
+        if (!bestClosest || deficit < bestClosest.deficitCents) {
+          bestClosest = {
+            selection: currentSelection,
+            sumGrossCents: currentGross,
+            sumFineCents: currentFine,
+            deficitCents: deficit,
+          };
+        }
+      }
+
+      // Poda si se pasa del objetivo
+      if (currentGross > targetGrossCents || currentFine > targetFineCents || index >= items.length) {
+        return;
+      }
 
       for (let i = index; i < items.length; i++) {
-        if (currentSum + items[i].cents <= targetCents) {
-          search(i + 1, currentSum + items[i].cents, [...currentSelection, items[i]]);
+        if (
+          currentGross + items[i].centsGross <= targetGrossCents + 1 &&
+          currentFine + items[i].centsFine <= targetFineCents + 1
+        ) {
+          search(
+            i + 1,
+            currentGross + items[i].centsGross,
+            currentFine + items[i].centsFine,
+            [...currentSelection, items[i]],
+          );
         }
       }
     }
 
-    search(0, 0, []);
+    search(0, 0, 0, []);
 
-    combinations.sort((a, b) => a.count - b.count);
+    exactCombinations.sort((a, b) => a.count - b.count);
+
+    const hasExactMatch = exactCombinations.length > 0;
+    let recommendation: any = null;
+
+    if (!hasExactMatch) {
+      const currentBest = bestClosest as ClosestMatch | null;
+      const selectedItems: typeof items = currentBest ? currentBest.selection : [];
+      const selectedGross = currentBest ? Number((currentBest.sumGrossCents / 100).toFixed(2)) : 0;
+      const selectedFine = currentBest ? Number((currentBest.sumFineCents / 100).toFixed(2)) : 0;
+
+      const missingGross = Math.max(0, Number((targetGrossGrams - selectedGross).toFixed(2)));
+      const missingFine = Math.max(0, Number((targetFineGrams - selectedFine).toFixed(2)));
+      const maxShortfall = Math.max(missingGross, missingFine);
+
+      const limitPerBarequero = 70.9;
+      const neededBarequeros = maxShortfall > 0 ? Math.ceil(maxShortfall / limitPerBarequero) : 1;
+      const suggestedGrossPerBarequero = Number((missingGross / neededBarequeros).toFixed(2));
+      const suggestedFinePerBarequero = Number((missingFine / neededBarequeros).toFixed(2));
+      const suggestedPurity =
+        suggestedGrossPerBarequero > 0
+          ? Number(((suggestedFinePerBarequero / suggestedGrossPerBarequero) * 1000).toFixed(1))
+          : 0;
+
+      recommendation = {
+        closestCombination: {
+          purchaseIds: selectedItems.map((i) => i.id),
+          consecutives: selectedItems.map((i) => i.consecutive),
+          totalGrossGrams: selectedGross,
+          totalFineGrams: selectedFine,
+          count: selectedItems.length,
+        },
+        missingGrossGrams: missingGross,
+        missingFineGrams: missingFine,
+        neededBarequeros,
+        suggestedGrossPerBarequero,
+        suggestedFinePerBarequero,
+        suggestedPurity,
+        limitPerBarequero,
+        message:
+          neededBarequeros === 1
+            ? `Se seleccionó la combinación más cercana disponible. Faltan ${missingGross.toFixed(2)} g brutos y ${missingFine.toFixed(2)} g finos. Se requiere registrar 1 compra a barequero adicional con ~${missingGross.toFixed(2)} g brutos y ~${missingFine.toFixed(2)} g finos (Ley ~${suggestedPurity}) para igualar el lote.`
+            : `Se seleccionó la combinación más cercana disponible. Faltan ${missingGross.toFixed(2)} g brutos y ${missingFine.toFixed(2)} g finos. Dado que supera el límite mensual de ${limitPerBarequero} g, se requiere registrar ${neededBarequeros} compras a barequeros adicionales con aprox. ~${suggestedGrossPerBarequero.toFixed(2)} g brutos y ~${suggestedFinePerBarequero.toFixed(2)} g finos (Ley ~${suggestedPurity}) cada una para completar el lote.`,
+      };
+    }
 
     return {
       batchId: batch.id,
       batchCode: batch.code,
-      targetGrossGrams: targetGrams,
+      targetGrossGrams,
+      targetFineGrams,
       availablePurchases,
-      combinations,
-      hasExactMatch: combinations.length > 0,
+      combinations: hasExactMatch
+        ? exactCombinations
+        : recommendation?.closestCombination
+          ? [recommendation.closestCombination]
+          : [],
+      hasExactMatch,
+      recommendation,
     };
   }
 

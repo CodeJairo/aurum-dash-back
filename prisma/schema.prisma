@@ -250,6 +250,10 @@ model Purchase {
   // Control de formalización histórica (para compras importadas de Siigo con 0g)
   isFormalizedHistorically Boolean   @default(false)
 
+  // Archivo y Documentación de Soporte
+  documentChecklist  Json?
+  documents          BarequeroDocument[]
+
   createdById  String?
   createdBy    User?        @relation(fields: [createdById], references: [id])
 
@@ -288,6 +292,9 @@ model SystemSetting {
   siigoCreditAccount  String?  @default("11050501")
   siigoRpDocumentId   Int?     @default(31163)
   siigoCashPaymentId  Int?     @default(4375)
+
+  // Lista de Documentos Obligatorios para Barequeros (Checklist en Archivo)
+  requiredDocuments   Json?
 
   updatedAt           DateTime @updatedAt
 
@@ -352,6 +359,8 @@ model BarequeroDocument {
   company      Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
   formalizerId String
   formalizer   Formalizer @relation(fields: [formalizerId], references: [id], onDelete: Cascade)
+  purchaseId   String?
+  purchase     Purchase?  @relation(fields: [purchaseId], references: [id], onDelete: SetNull)
   name         String
   category     String     @default("OTRO") // CEDULA_FRONTAL, CEDULA_POSTERIOR, RUT, CERTIFICADO_BANCARIO, FOTO_BAREQUERO, OTRO
   period       String?    // Ej: "2026-11" o "Noviembre 2026" para carpetas mensuales

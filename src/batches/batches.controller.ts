@@ -52,9 +52,11 @@ export class BatchesController {
     @CurrentCompanyId() companyId: string,
     @Param('id') id: string,
     @Query('targetGrossGrams') targetGrossGrams?: string,
+    @Query('targetFineGrams') targetFineGrams?: string,
   ) {
-    const target = targetGrossGrams ? Number(targetGrossGrams) : undefined;
-    return this.batchesService.getFormalizationSuggestions(companyId, id, target);
+    const targetGross = targetGrossGrams ? Number(targetGrossGrams) : undefined;
+    const targetFine = targetFineGrams ? Number(targetFineGrams) : undefined;
+    return this.batchesService.getFormalizationSuggestions(companyId, id, targetGross, targetFine);
   }
 
   @Delete(':id/purchases/:purchaseId')
