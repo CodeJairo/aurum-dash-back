@@ -901,13 +901,14 @@ export class PurchasesService {
     });
   }
 
-  async uploadVendorPhoto(file: Express.Multer.File) {
+  async uploadVendorPhoto(companyId: string, file: Express.Multer.File) {
     if (!file) {
       throw new BadRequestException('No se recibió ningún archivo de imagen.');
     }
+    const prefix = companyId ? `companies/${companyId}/barequeros/photos` : 'barequeros/photos';
     const uploadRes = await this.storageService.uploadFile(
       file,
-      'barequeros/photos',
+      prefix,
       '/api/formalizers/documents/file',
     );
     return {

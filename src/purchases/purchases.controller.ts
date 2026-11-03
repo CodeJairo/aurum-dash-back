@@ -89,8 +89,11 @@ export class PurchasesController {
   @Post('vendor-photo')
   @Roles(Role.ADMIN, Role.BAREQUERO_OPERATOR)
   @UseInterceptors(FileInterceptor('file'))
-  uploadVendorPhoto(@UploadedFile() file: Express.Multer.File) {
-    return this.purchasesService.uploadVendorPhoto(file);
+  uploadVendorPhoto(
+    @CurrentCompanyId() companyId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.purchasesService.uploadVendorPhoto(companyId, file);
   }
 
   @Post(':id/signed-receipt')

@@ -44,8 +44,11 @@ export class ExpensesController {
   @Post('upload-receipt')
   @Roles(Role.ADMIN)
   @UseInterceptors(FileInterceptor('file'))
-  uploadReceipt(@UploadedFile() file: Express.Multer.File) {
-    return this.expensesService.uploadReceipt(file);
+  uploadReceipt(
+    @CurrentCompanyId() companyId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.expensesService.uploadReceipt(companyId, file);
   }
 
   @Public()

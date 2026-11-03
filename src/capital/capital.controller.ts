@@ -43,8 +43,11 @@ export class CapitalController {
   @Post('upload-receipt')
   @Roles(Role.ADMIN)
   @UseInterceptors(FileInterceptor('file'))
-  uploadReceipt(@UploadedFile() file: Express.Multer.File) {
-    return this.capitalService.uploadReceipt(file);
+  uploadReceipt(
+    @CurrentCompanyId() companyId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.capitalService.uploadReceipt(companyId, file);
   }
 
   @Public()

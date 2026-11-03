@@ -336,11 +336,12 @@ export class CapitalService {
     });
   }
 
-  async uploadReceipt(file: Express.Multer.File) {
+  async uploadReceipt(companyId: string, file: Express.Multer.File) {
     if (!file) {
       throw new BadRequestException('No se ha proporcionado ningún comprobante.');
     }
-    const uploaded = await this.storageService.uploadFile(file, 'capital', '/api/capital/receipt/file');
+    const prefix = companyId ? `companies/${companyId}/capital` : 'capital';
+    const uploaded = await this.storageService.uploadFile(file, prefix, '/api/capital/receipt/file');
     return {
       fileUrl: uploaded.fileUrl,
       fileKey: uploaded.fileKey,

@@ -163,11 +163,12 @@ export class ExpensesService {
     return expense;
   }
 
-  async uploadReceipt(file: Express.Multer.File) {
+  async uploadReceipt(companyId: string, file: Express.Multer.File) {
     if (!file) {
       throw new BadRequestException('No se ha proporcionado ningún comprobante.');
     }
-    const uploaded = await this.storageService.uploadFile(file, 'expenses', '/api/expenses/receipt/file');
+    const prefix = companyId ? `companies/${companyId}/expenses` : 'expenses';
+    const uploaded = await this.storageService.uploadFile(file, prefix, '/api/expenses/receipt/file');
     return {
       fileUrl: uploaded.fileUrl,
       fileKey: uploaded.fileKey,
