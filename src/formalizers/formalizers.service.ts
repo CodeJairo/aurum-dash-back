@@ -7,6 +7,7 @@ import { VinculacionExcelService } from './vinculacion-excel.service';
 import { CreateFormalizerDto } from './dto/create-formalizer.dto';
 import { CompleteVinculacionDto } from './dto/complete-vinculacion.dto';
 import { FormalizerStatus, Prisma } from '@prisma/client';
+import { DEFAULT_REQUIRED_DOCUMENTS } from '../settings/settings.service';
 import {
   REQUIRED_BAREQUERO_DOCUMENT_CATEGORIES,
   evaluateBarequeroDocuments,
@@ -21,7 +22,7 @@ export class FormalizersService {
   ) {}
 
   async findAll(companyId: string, status?: 'AVAILABLE' | 'USED') {
-    return this.prisma.formalizer.findMany({
+    const formalizers = await this.prisma.formalizer.findMany({
       where: {
         companyId,
         ...(status ? { status } : {}),
@@ -35,6 +36,85 @@ export class FormalizersService {
           select: { id: true, code: true, name: true },
         },
       },
+    });
+
+    // Obtener documentos requeridos vigentes definidos en Ajustes
+    const setting = await this.prisma.systemSetting.findUnique({
+      where: { companyId },
+      select: { requiredDocuments: true },
+    });
+    const requiredDocs: string[] =
+      (setting?.requiredDocuments as string[])?.filter((d) => d !== 'Soporte de Pago / Recepción') ||
+      DEFAULT_REQUIRED_DOCUMENTS;
+
+    // Mapear historial de fechas de compra para ubicación en el Archivo y checklist
+    const docList = formalizers.map((f) => f.document.trim()).filter(Boolean);
+    const purchases = await this.prisma.purchase.findMany({
+      where: {
+        companyId,
+        type: 'FORMAL',
+        vendorDoc: { in: docList },
+      },
+      select: {
+        id: true,
+        vendorDoc: true,
+        consecutive: true,
+        purchaseDate: true,
+        grossGrams: true,
+        fineGrams: true,
+        documentChecklist: true,
+      },
+      orderBy: { purchaseDate: 'desc' },
+    });
+
+    const purchasesByDoc = new Map<string, any[]>();
+    for (const p of purchases) {
+      if (!p.vendorDoc) continue;
+      const key = p.vendorDoc.trim();
+      if (!purchasesByDoc.has(key)) {
+        purchasesByDoc.set(key, []);
+      }
+      const d = new Date(p.purchaseDate);
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      purchasesByDoc.get(key)!.push({
+        id: p.id,
+        consecutive: p.consecutive || 'S/C',
+        purchaseDate: p.purchaseDate,
+        dateKey: `${year}-${month}-${day}`,
+        dateFormatted: `${day}/${month}/${year}`,
+        grossGrams: Number(p.grossGrams),
+        fineGrams: Number(p.fineGrams),
+        documentChecklist: (p.documentChecklist as string[]) || [],
+      });
+    }
+
+    return formalizers.map((f) => {
+      const barequeroPurchases = purchasesByDoc.get(f.document.trim()) || [];
+      const allChecked = new Set<string>();
+      for (const p of barequeroPurchases) {
+        if (Array.isArray(p.documentChecklist)) {
+          p.documentChecklist.forEach((item: string) => allChecked.add(item));
+        }
+      }
+
+      const checkedCount = requiredDocs.filter((req) => allChecked.has(req)).length;
+      const totalRequired = requiredDocs.length;
+      const isComplete = totalRequired > 0 && checkedCount === totalRequired;
+      const percent = totalRequired > 0 ? Math.round((checkedCount / totalRequired) * 100) : 100;
+
+      return {
+        ...f,
+        purchases: barequeroPurchases,
+        checklistStats: {
+          checkedCount,
+          totalRequired,
+          isComplete,
+          percent,
+          hasPurchases: barequeroPurchases.length > 0,
+        },
+      };
     });
   }
 
