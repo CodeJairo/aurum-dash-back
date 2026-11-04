@@ -5,6 +5,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import cookieParser from 'cookie-parser';
 
+// Fijar la zona horaria oficial del sistema en Colombia (UTC-5)
+process.env.TZ = 'America/Bogota';
+
 // Cargar variables de .env en desarrollo si existen
 try {
   const envPath = path.resolve(process.cwd(), '.env');

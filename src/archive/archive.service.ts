@@ -327,21 +327,23 @@ export class ArchiveService {
       where.id = filter.purchaseId;
       zipFileName = `Expediente_Recepcion_${filter.purchaseId.slice(-6)}.zip`;
     } else if (filter.date) {
-      const startOfDay = new Date(`${filter.date}T00:00:00.000Z`);
-      const endOfDay = new Date(`${filter.date}T23:59:59.999Z`);
+      const cleanDate = filter.date.slice(0, 10);
+      const startOfDay = new Date(`${cleanDate}T00:00:00.000-05:00`);
+      const endOfDay = new Date(`${cleanDate}T23:59:59.999-05:00`);
       where.purchaseDate = { gte: startOfDay, lte: endOfDay };
-      zipFileName = `Archivo_${filter.date}.zip`;
+      zipFileName = `Archivo_${cleanDate}.zip`;
     } else if (filter.month) {
       const [y, m] = filter.month.split('-').map(Number);
-      const startOfMonth = new Date(Date.UTC(y, m - 1, 1));
-      const endOfMonth = new Date(Date.UTC(y, m, 0, 23, 59, 59, 999));
+      const startOfMonth = new Date(`${y}-${String(m).padStart(2, '0')}-01T00:00:00.000-05:00`);
+      const endOfMonthDay = new Date(y, m, 0).getDate();
+      const endOfMonth = new Date(`${y}-${String(m).padStart(2, '0')}-${String(endOfMonthDay).padStart(2, '0')}T23:59:59.999-05:00`);
       where.purchaseDate = { gte: startOfMonth, lte: endOfMonth };
       const monthLabel = MONTH_NAMES[m - 1] || `${m}`;
       zipFileName = `Archivo_${monthLabel}_${y}.zip`;
     } else if (filter.year) {
       const y = Number(filter.year);
-      const startOfYear = new Date(Date.UTC(y, 0, 1));
-      const endOfYear = new Date(Date.UTC(y, 11, 31, 23, 59, 59, 999));
+      const startOfYear = new Date(`${y}-01-01T00:00:00.000-05:00`);
+      const endOfYear = new Date(`${y}-12-31T23:59:59.999-05:00`);
       where.purchaseDate = { gte: startOfYear, lte: endOfYear };
       zipFileName = `Archivo_${y}.zip`;
     }

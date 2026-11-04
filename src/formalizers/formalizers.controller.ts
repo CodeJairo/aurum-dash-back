@@ -54,6 +54,12 @@ export class FormalizersController {
     return this.formalizersService.findByDocument(companyId, doc);
   }
 
+  @Delete('cleanup-unused')
+  @Roles(Role.ADMIN)
+  cleanupUnused(@CurrentCompanyId() companyId: string) {
+    return this.formalizersService.cleanupUnused(companyId);
+  }
+
   @Post('vinculacion')
   @Roles(Role.ADMIN, Role.BAREQUERO_OPERATOR)
   completeVinculacionDirect(

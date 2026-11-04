@@ -590,10 +590,22 @@ export class PurchasesService {
       throw new BadRequestException('Esta acción solo aplica para recepciones de material (barequeros).');
     }
 
-    if (existing.formalizedBatchId) {
-      throw new BadRequestException(
-        `Esta recepción ya fue utilizada para formalizar el lote ${existing.formalizedBatch?.code || existing.formalizedBatchId} y no puede ser modificada.`,
-      );
+    const isFormalized = !!existing.formalizedBatchId;
+
+    if (isFormalized) {
+      // Si la recepción ya fue formalizada en un lote, solo permitimos corregir el consecutivo, fecha y notas
+      const triedToChangeGrams =
+        (dto.grossGrams !== undefined && Math.abs(Number(dto.grossGrams) - Number(existing.grossGrams)) > 0.001) ||
+        (dto.fineGrams !== undefined && Math.abs(Number(dto.fineGrams) - Number(existing.fineGrams)) > 0.001) ||
+        (dto.pricePerGram !== undefined && Math.abs(Number(dto.pricePerGram) - Number(existing.pricePerGram)) > 0.01) ||
+        (dto.totalCost !== undefined && Math.abs(Number(dto.totalCost) - Number(existing.totalCost)) > 0.01) ||
+        (dto.material !== undefined && dto.material !== existing.material);
+
+      if (triedToChangeGrams) {
+        throw new BadRequestException(
+          `Esta recepción ya fue utilizada para formalizar el lote ${existing.formalizedBatch?.code || existing.formalizedBatchId}. No se pueden modificar los gramos, precios ni material, únicamente el consecutivo o notas informativas.`,
+        );
+      }
     }
 
     // 1. Validar consecutivo único si se envió

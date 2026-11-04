@@ -104,10 +104,10 @@ export class ExpensesService {
     if (options?.startDate || options?.endDate) {
       where.expenseDate = {};
       if (options.startDate) {
-        where.expenseDate.gte = new Date(`${options.startDate.slice(0, 10)}T00:00:00`);
+        where.expenseDate.gte = new Date(`${options.startDate.slice(0, 10)}T00:00:00.000-05:00`);
       }
       if (options.endDate) {
-        where.expenseDate.lte = new Date(`${options.endDate.slice(0, 10)}T23:59:59.999`);
+        where.expenseDate.lte = new Date(`${options.endDate.slice(0, 10)}T23:59:59.999-05:00`);
       }
     }
 

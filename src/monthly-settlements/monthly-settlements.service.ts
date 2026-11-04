@@ -16,17 +16,17 @@ export class MonthlySettlementsService {
   ) {}
 
   private parseDateBoundaries(startDateStr: string, endDateStr: string) {
-    const [sYear, sMonth, sDay] = startDateStr.slice(0, 10).split('-').map(Number);
-    const [eYear, eMonth, eDay] = endDateStr.slice(0, 10).split('-').map(Number);
+    const sClean = startDateStr.slice(0, 10);
+    const eClean = endDateStr.slice(0, 10);
 
-    // Para la consulta de lotes: cubrimos desde las 00:00:00.000 locales del primer día
-    // hasta las 23:59:59.999 locales del último día
-    const queryStart = new Date(sYear, sMonth - 1, sDay, 0, 0, 0, 0);
-    const queryEnd = new Date(eYear, eMonth - 1, eDay, 23, 59, 59, 999);
+    // En Colombia (UTC-5), el periodo abarca desde las 00:00:00.000 del primer día
+    // hasta las 23:59:59.999 del último día en hora local colombiana (-05:00)
+    const queryStart = new Date(`${sClean}T00:00:00.000-05:00`);
+    const queryEnd = new Date(`${eClean}T23:59:59.999-05:00`);
 
-    // Para almacenar en BD como fecha representativa del periodo (al mediodía local para evitar desfases de huso horario):
-    const storeStart = new Date(sYear, sMonth - 1, sDay, 12, 0, 0, 0);
-    const storeEnd = new Date(eYear, eMonth - 1, eDay, 12, 0, 0, 0);
+    // Para almacenar en BD como fecha representativa del periodo (al mediodía en Colombia para evitar desfases de calendario)
+    const storeStart = new Date(`${sClean}T12:00:00.000-05:00`);
+    const storeEnd = new Date(`${eClean}T12:00:00.000-05:00`);
 
     return { queryStart, queryEnd, storeStart, storeEnd };
   }

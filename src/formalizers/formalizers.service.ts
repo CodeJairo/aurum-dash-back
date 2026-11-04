@@ -509,4 +509,72 @@ export class FormalizersService {
   async getDocumentFileStream(fileKey: string) {
     return this.storageService.getFileStream(fileKey);
   }
+
+  async cleanupUnused(companyId: string) {
+    // 1. Barequeros con usedInBatchId no nulo
+    const preservedByBatch = await this.prisma.formalizer.findMany({
+      where: {
+        companyId,
+        usedInBatchId: { not: null },
+      },
+      select: { document: true },
+    });
+
+    // 2. Barequeros que tienen compras asociadas a un lote (batchId o formalizedBatchId no nulo)
+    const purchasesWithBatch = await this.prisma.purchase.findMany({
+      where: {
+        companyId,
+        OR: [
+          { batchId: { not: null } },
+          { formalizedBatchId: { not: null } },
+        ],
+        vendorDoc: { not: null },
+      },
+      select: { vendorDoc: true },
+    });
+
+    const protectedDocs = new Set<string>();
+    for (const f of preservedByBatch) {
+      if (f.document) protectedDocs.add(f.document.trim());
+    }
+    for (const p of purchasesWithBatch) {
+      if (p.vendorDoc) protectedDocs.add(p.vendorDoc.trim());
+    }
+
+    // Barequeros a eliminar: sin usedInBatchId y cuyo documento no pertenezca a ningún lote
+    const toDelete = await this.prisma.formalizer.findMany({
+      where: {
+        companyId,
+        usedInBatchId: null,
+        document: { notIn: Array.from(protectedDocs) },
+      },
+      select: { id: true },
+    });
+
+    const idsToDelete = toDelete.map((f) => f.id);
+
+    if (idsToDelete.length === 0) {
+      return {
+        success: true,
+        count: 0,
+        message: 'No se encontraron barequeros sin lote asociado para depurar.',
+      };
+    }
+
+    // Eliminar documentos asociados para mantener integridad referencial
+    await this.prisma.barequeroDocument.deleteMany({
+      where: { formalizerId: { in: idsToDelete } },
+    });
+
+    // Eliminar formalizadores no utilizados
+    const deletedResult = await this.prisma.formalizer.deleteMany({
+      where: { id: { in: idsToDelete }, companyId },
+    });
+
+    return {
+      success: true,
+      count: deletedResult.count,
+      message: `Se eliminaron exitosamente ${deletedResult.count} barequeros sin lote asociado.`,
+    };
+  }
 }
