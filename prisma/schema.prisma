@@ -296,6 +296,9 @@ model SystemSetting {
   // Lista de Documentos Obligatorios para Barequeros (Checklist en Archivo)
   requiredDocuments   Json?
 
+  // Tope Máximo Legal/Operativo por Compra a Barequero (Gramos Brutos)
+  barequeroMaxGrams   Decimal  @default(70.90) @db.Decimal(8, 2)
+
   updatedAt           DateTime @updatedAt
 
   @@map("system_settings")

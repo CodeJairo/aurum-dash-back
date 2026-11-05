@@ -1,4 +1,4 @@
-import { IsBoolean, IsInt, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class UpdateSettingsDto {
   @IsOptional()
@@ -71,4 +71,9 @@ export class UpdateSettingsDto {
 
   @IsOptional()
   requiredDocuments?: any;
+
+  @IsOptional()
+  @IsNumber({}, { message: 'El tope máximo por barequero debe ser numérico.' })
+  @Min(0.01, { message: 'El tope máximo debe ser mayor a 0.' })
+  barequeroMaxGrams?: number;
 }

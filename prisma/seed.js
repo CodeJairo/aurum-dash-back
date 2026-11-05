@@ -121,6 +121,7 @@ async function seedAtlasCapital() {
         city: 'Quibdó',
         country: 'Colombia',
         consecutivePrefix: 'DH-',
+        barequeroMaxGrams: 70.90,
         ...siigoConfig,
       },
     });
@@ -132,6 +133,7 @@ async function seedAtlasCapital() {
         legalName: 'DANIEL CAMILO HERRERA RENTERIA',
         document: '1.078.000.069',
         consecutivePrefix: existingSetting.consecutivePrefix || 'DH-',
+        barequeroMaxGrams: existingSetting.barequeroMaxGrams ?? 70.90,
         ...siigoConfig,
       },
     });

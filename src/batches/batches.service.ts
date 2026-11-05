@@ -556,7 +556,11 @@ export class BatchesService {
       const missingFine = Math.max(0, Number((targetFineGrams - selectedFine).toFixed(2)));
       const maxShortfall = Math.max(missingGross, missingFine);
 
-      const limitPerBarequero = 70.9;
+      const setting = await this.prisma.systemSetting.findUnique({
+        where: { companyId },
+        select: { barequeroMaxGrams: true },
+      });
+      const limitPerBarequero = setting?.barequeroMaxGrams ? Number(setting.barequeroMaxGrams) : 70.9;
       const neededBarequeros = maxShortfall > 0 ? Math.ceil(maxShortfall / limitPerBarequero) : 1;
       const suggestedGrossPerBarequero = Number((missingGross / neededBarequeros).toFixed(2));
       const suggestedFinePerBarequero = Number((missingFine / neededBarequeros).toFixed(2));
@@ -583,9 +587,15 @@ export class BatchesService {
         message:
           neededBarequeros === 1
             ? `Se seleccionó la combinación más cercana disponible. Faltan ${missingGross.toFixed(2)} g brutos y ${missingFine.toFixed(2)} g finos. Se requiere registrar 1 compra a barequero adicional con ~${missingGross.toFixed(2)} g brutos y ~${missingFine.toFixed(2)} g finos (Ley ~${suggestedPurity}) para igualar el lote.`
-            : `Se seleccionó la combinación más cercana disponible. Faltan ${missingGross.toFixed(2)} g brutos y ${missingFine.toFixed(2)} g finos. Dado que supera el límite mensual de ${limitPerBarequero} g, se requiere registrar ${neededBarequeros} compras a barequeros adicionales con aprox. ~${suggestedGrossPerBarequero.toFixed(2)} g brutos y ~${suggestedFinePerBarequero.toFixed(2)} g finos (Ley ~${suggestedPurity}) cada una para completar el lote.`,
+            : `Se seleccionó la combinación más cercana disponible. Faltan ${missingGross.toFixed(2)} g brutos y ${missingFine.toFixed(2)} g finos. Dado que supera el límite por barequero de ${limitPerBarequero} g, se requiere registrar ${neededBarequeros} compras a barequeros adicionales con aprox. ~${suggestedGrossPerBarequero.toFixed(2)} g brutos y ~${suggestedFinePerBarequero.toFixed(2)} g finos (Ley ~${suggestedPurity}) cada una para completar el lote.`,
       };
     }
+
+    const companySetting = await this.prisma.systemSetting.findUnique({
+      where: { companyId },
+      select: { barequeroMaxGrams: true },
+    });
+    const finalLimitPerBarequero = companySetting?.barequeroMaxGrams ? Number(companySetting.barequeroMaxGrams) : 70.9;
 
     return {
       batchId: batch.id,
@@ -593,6 +603,7 @@ export class BatchesService {
       targetGrossGrams,
       targetFineGrams,
       availablePurchases,
+      limitPerBarequero: finalLimitPerBarequero,
       combinations: hasExactMatch
         ? exactCombinations
         : recommendation?.closestCombination

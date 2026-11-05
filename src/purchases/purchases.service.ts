@@ -24,6 +24,14 @@ export class PurchasesService {
     private readonly storageService: StorageService,
   ) {}
 
+  private async getCompanyBarequeroMaxGrams(companyId: string): Promise<number> {
+    const setting = await this.prisma.systemSetting.findUnique({
+      where: { companyId },
+      select: { barequeroMaxGrams: true },
+    });
+    return setting?.barequeroMaxGrams ? Number(setting.barequeroMaxGrams) : 70.9;
+  }
+
   async getNextConsecutive(companyId: string) {
     return this.settingsService.getNextConsecutivePreview(companyId);
   }
@@ -45,11 +53,14 @@ export class PurchasesService {
       );
     }
 
-    // Validación tope máximo legal de compra a barequeros: 70.9 g brutos
-    if (purchaseType === PurchaseTypeDto.FORMAL && grossGrams > 70.9) {
-      throw new BadRequestException(
-        `El gramaje bruto máximo permitido para una compra a barequero es de 70.9 gramos. (Ingresado: ${grossGrams.toFixed(2)} g)`,
-      );
+    // Validación tope máximo legal de compra a barequeros configurado por empresa
+    if (purchaseType === PurchaseTypeDto.FORMAL) {
+      const barequeroLimit = await this.getCompanyBarequeroMaxGrams(companyId);
+      if (grossGrams > barequeroLimit) {
+        throw new BadRequestException(
+          `El gramaje bruto máximo permitido para una compra a barequero es de ${barequeroLimit} gramos. (Ingresado: ${grossGrams.toFixed(2)} g)`,
+        );
+      }
     }
 
     // Normalización de Ley sin redondeo prematuro (ej. 993.96 -> 0.99396)
@@ -440,10 +451,13 @@ export class PurchasesService {
     const grossGrams = dto.grossGrams !== undefined ? Number(dto.grossGrams) : Number(existing.grossGrams);
     const pricePerGram = dto.pricePerGram !== undefined ? Number(dto.pricePerGram) : Number(existing.pricePerGram);
 
-    if (existing.type === 'FORMAL' && grossGrams > 70.9) {
-      throw new BadRequestException(
-        `El gramaje bruto máximo permitido para una compra a barequero es de 70.9 gramos. (Ingresado: ${grossGrams.toFixed(2)} g)`,
-      );
+    if (existing.type === 'FORMAL') {
+      const barequeroLimit = await this.getCompanyBarequeroMaxGrams(companyId);
+      if (grossGrams > barequeroLimit) {
+        throw new BadRequestException(
+          `El gramaje bruto máximo permitido para una compra a barequero es de ${barequeroLimit} gramos. (Ingresado: ${grossGrams.toFixed(2)} g)`,
+        );
+      }
     }
     
     let purity = existing.purity ? Number(existing.purity) : null;
@@ -632,9 +646,10 @@ export class PurchasesService {
 
     // 2. Gramos brutos
     const grossGrams = dto.grossGrams !== undefined ? Number(dto.grossGrams) : Number(existing.grossGrams);
-    if (grossGrams > 70.9) {
+    const barequeroLimit = await this.getCompanyBarequeroMaxGrams(companyId);
+    if (grossGrams > barequeroLimit) {
       throw new BadRequestException(
-        `El gramaje bruto máximo permitido para barequeros es 70.9 g. (Ingresado: ${grossGrams.toFixed(2)} g)`,
+        `El gramaje bruto máximo permitido para barequeros es ${barequeroLimit} g. (Ingresado: ${grossGrams.toFixed(2)} g)`,
       );
     }
 

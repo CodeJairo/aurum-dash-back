@@ -90,6 +90,10 @@ export class SettingsService {
         siigoRpDocumentId: dto.siigoRpDocumentId !== undefined ? dto.siigoRpDocumentId : current.siigoRpDocumentId,
         siigoCashPaymentId: dto.siigoCashPaymentId !== undefined ? dto.siigoCashPaymentId : current.siigoCashPaymentId,
         requiredDocuments: sanitizedDocs,
+        barequeroMaxGrams:
+          dto.barequeroMaxGrams !== undefined
+            ? new Prisma.Decimal(Number(dto.barequeroMaxGrams).toFixed(2))
+            : current.barequeroMaxGrams,
       },
     });
   }

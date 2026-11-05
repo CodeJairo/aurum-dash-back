@@ -1,4 +1,4 @@
-import { IsEnum, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsEnum, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 import { MaterialType } from '@prisma/client';
 import { PricingModeDto } from './create-purchase.dto';
 
@@ -10,7 +10,6 @@ export class UpdateReceptionDto {
   @IsOptional()
   @IsNumber({}, { message: 'El gramaje bruto debe ser numérico.' })
   @Min(0.0001, { message: 'El gramaje bruto debe ser mayor a 0.' })
-  @Max(70.9, { message: 'El gramaje bruto máximo permitido para barequeros es 70.9 g.' })
   grossGrams?: number;
 
   @IsOptional()
