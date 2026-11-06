@@ -62,6 +62,14 @@ export class DebtsService {
       where,
       orderBy: [{ purchaseDate: 'desc' }, { createdAt: 'desc' }],
       include: {
+        batch: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            status: true,
+          },
+        },
         debtMovements: {
           orderBy: { createdAt: 'desc' },
         },
@@ -337,6 +345,15 @@ export class DebtsService {
   ) {
     const purchase = await this.prisma.purchase.findUnique({
       where: { id: purchaseId },
+      include: {
+        batch: {
+          select: {
+            id: true,
+            code: true,
+            status: true,
+          },
+        },
+      },
     });
 
     if (!purchase || purchase.companyId !== companyId) {
@@ -352,6 +369,12 @@ export class DebtsService {
     if (purchase.paymentStatus === PaymentStatus.PENDING) {
       throw new BadRequestException(
         'La compra ya se encuentra pendiente de pago en Cartera',
+      );
+    }
+
+    if (purchase.batch && purchase.batch.status === 'CLOSED') {
+      throw new BadRequestException(
+        `No se puede transferir a Cartera porque pertenece al lote ${purchase.batch.code}, el cual ya fue cerrado y liquidado.`,
       );
     }
 
