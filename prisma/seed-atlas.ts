@@ -115,12 +115,11 @@ export async function seedAtlasCapital() {
         name: 'Daniel Camilo Herrera Renteria',
         email: 'daniel@aurumdash.com',
         role: Role.ADMIN,
-        password: danielHash,
         profitSharePercent: 50.0,
         isActive: true,
       },
     });
-    console.log('✓ Usuario Daniel Herrera actualizado [ADMIN]');
+    console.log('✓ Usuario Daniel Herrera sincronizado (contraseña preservada) [ADMIN]');
   } else {
     await prisma.user.create({
       data: {
@@ -156,12 +155,11 @@ export async function seedAtlasCapital() {
         name: 'Andres Felipe Herrera',
         email: 'andres@aurumdash.com',
         role: Role.VIEWER,
-        password: andresHash,
         profitSharePercent: 50.0,
         isActive: true,
       },
     });
-    console.log('✓ Usuario Andrés Herrera actualizado [VIEWER]');
+    console.log('✓ Usuario Andrés Herrera sincronizado (contraseña preservada) [VIEWER]');
   } else {
     await prisma.user.create({
       data: {

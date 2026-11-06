@@ -30,13 +30,12 @@ export async function seedSuperAdmin() {
         username,
         email,
         name,
-        password: hashedPassword,
         role: Role.SUPER_ADMIN,
         companyId: null,
         isActive: true,
       },
     });
-    console.log(`✓ Super Administrador actualizado: @${updated.username} (${updated.email})`);
+    console.log(`✓ Super Administrador sincronizado (contraseña preservada): @${updated.username} (${updated.email})`);
     return updated;
   } else {
     const created = await prisma.user.create({

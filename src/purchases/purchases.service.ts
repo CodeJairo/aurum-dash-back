@@ -330,13 +330,39 @@ export class PurchasesService {
 
   async findAll(companyId: string, status?: 'unassigned' | 'assigned', type?: 'ACCOUNTING' | 'FORMAL') {
     const where: Prisma.PurchaseWhereInput = { companyId };
-    if (status === 'unassigned') {
-      where.batchId = null;
-    } else if (status === 'assigned') {
-      where.batchId = { not: null };
-    }
     if (type) {
       where.type = type;
+    }
+
+    if (status === 'unassigned') {
+      if (type === 'FORMAL') {
+        where.formalizedBatchId = null;
+        where.isFormalizedHistorically = false;
+        where.batchId = null;
+        where.grossGrams = { gt: 0 };
+      } else if (type === 'ACCOUNTING') {
+        where.batchId = null;
+      } else {
+        where.batchId = null;
+        where.formalizedBatchId = null;
+        where.isFormalizedHistorically = false;
+      }
+    } else if (status === 'assigned') {
+      if (type === 'FORMAL') {
+        where.OR = [
+          { formalizedBatchId: { not: null } },
+          { isFormalizedHistorically: true },
+          { batchId: { not: null } },
+        ];
+      } else if (type === 'ACCOUNTING') {
+        where.batchId = { not: null };
+      } else {
+        where.OR = [
+          { batchId: { not: null } },
+          { formalizedBatchId: { not: null } },
+          { isFormalizedHistorically: true },
+        ];
+      }
     }
 
     const purchases = await this.prisma.purchase.findMany({
