@@ -78,19 +78,17 @@ export class DebtsController {
   @Roles(Role.ADMIN)
   sendPurchaseToDebt(
     @CurrentCompanyId() companyId: string,
-    @CurrentUser('id') userId: string,
     @Param('purchaseId') purchaseId: string,
   ) {
-    return this.debtsService.sendPurchaseToDebt(companyId, purchaseId, userId);
+    return this.debtsService.sendPurchaseToDebt(companyId, purchaseId);
   }
 
   @Post('receivables/:batchId/send-to-debt')
   @Roles(Role.ADMIN)
   sendBatchToDebt(
     @CurrentCompanyId() companyId: string,
-    @CurrentUser('id') userId: string,
     @Param('batchId') batchId: string,
   ) {
-    return this.debtsService.sendBatchToDebt(companyId, batchId, userId);
+    return this.debtsService.sendBatchToDebt(companyId, batchId);
   }
 }

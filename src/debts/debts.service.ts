@@ -341,7 +341,6 @@ export class DebtsService {
   async sendPurchaseToDebt(
     companyId: string,
     purchaseId: string,
-    userId: string,
   ) {
     const purchase = await this.prisma.purchase.findUnique({
       where: { id: purchaseId },
@@ -380,7 +379,10 @@ export class DebtsService {
 
     return this.prisma.$transaction(async (tx) => {
       const totalCost = Number(purchase.totalCost);
-      const paidToRefund = Number(purchase.paidAmount ?? totalCost);
+      const rawPaid = Number(purchase.paidAmount || 0);
+      // Si la compra estaba pagada pero tiene paidAmount == 0 (por la migración de schema en producción),
+      // el valor pagado original a reintegrar es totalCost:
+      const paidToRefund = rawPaid > 0 ? rawPaid : totalCost;
       const consecutiveStr = purchase.consecutive ? ` Nº ${purchase.consecutive}` : '';
 
       // 1. Reintegrar el dinero a la cuenta original
@@ -443,7 +445,6 @@ export class DebtsService {
           amount: new Prisma.Decimal(paidToRefund.toFixed(2)),
           account: purchase.paymentMethod || PaymentAccount.CASH,
           notes: `Transferida a Cartera CxP por Administrador. Reintegro automático de $${paidToRefund.toLocaleString('es-CO')}.`,
-          registeredById: userId,
         },
       });
 
@@ -466,7 +467,6 @@ export class DebtsService {
   async sendBatchToDebt(
     companyId: string,
     batchId: string,
-    userId: string,
   ) {
     const batch = await this.prisma.batch.findUnique({
       where: { id: batchId },
@@ -528,7 +528,6 @@ export class DebtsService {
           amount: new Prisma.Decimal(netSale.toFixed(2)),
           account: targetAccount,
           notes: `Venta transferida a Cartera CxC por Administrador. Saldo neto de $${netSale.toLocaleString('es-CO')} por cobrar.`,
-          registeredById: userId,
         },
       });
 
