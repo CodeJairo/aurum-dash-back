@@ -145,6 +145,31 @@ export class DashboardService {
     const totalHistoricalExpenses = Number(allExpensesAgg._sum.amount || 0);
     const totalFourPerThousand = Number(fourPerThousandAgg._sum.amount || 0);
 
+    // Flujo de fondos acumulado para Explicación de Fondos en vivo
+    const injectionsAgg = await this.prisma.capitalMovement.aggregate({
+      where: { companyId, type: 'CAPITAL_INJECTION' },
+      _sum: { amount: true },
+    });
+    const withdrawalsAgg = await this.prisma.capitalMovement.aggregate({
+      where: { companyId, type: 'CAPITAL_WITHDRAWAL' },
+      _sum: { amount: true },
+    });
+    const profitPayoutsAgg = await this.prisma.capitalMovement.aggregate({
+      where: { companyId, type: 'PARTNER_PROFIT_PAYOUT' },
+      _sum: { amount: true },
+    });
+
+    const totalInjectedCapital = Number(injectionsAgg._sum.amount || 0) - Number(withdrawalsAgg._sum.amount || 0);
+    const totalProfitsDistributed = Math.abs(Number(profitPayoutsAgg._sum.amount || 0));
+
+    // Compras contables pagadas de contado (excluyendo la deuda pendiente en Cartera CxP)
+    const totalDebtPayable = Number(payablesAgg._sum.pendingAmount || 0);
+    const totalPurchasesPaid = Math.max(0, totalHistoricalInvestment - totalDebtPayable);
+
+    // Ventas recaudadas efectivamente en banco (Ventas de lotes cerrados menos las pendientes en Cartera CxC)
+    const totalDebtReceivable = Number(receivablesAgg._sum.pendingAmount || 0);
+    const totalSalesCollected = Math.max(0, totalHistoricalSales - totalDebtReceivable);
+
     const totalNetProfit = totalHistoricalSales - totalHistoricalInvestment - totalHistoricalExpenses;
 
     // Reparto acumulado entre los dos socios administradores
@@ -267,6 +292,11 @@ export class DashboardService {
         payableCount: payablesAgg._count.id || 0,
         totalReceivable: Number(receivablesAgg._sum.pendingAmount || 0),
         receivableCount: receivablesAgg._count.id || 0,
+        totalInjectedCapital,
+        totalPurchasesPaid,
+        totalSalesCollected,
+        totalExpensesPaid: totalHistoricalExpenses,
+        totalProfitsDistributed,
       },
       activeInventory: {
         openBatchesCount: openBatches.length,
