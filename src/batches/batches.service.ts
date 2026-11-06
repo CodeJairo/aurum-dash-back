@@ -11,7 +11,7 @@ import { CreateBatchDto } from './dto/create-batch.dto';
 import { UnifyPurchasesDto } from './dto/unify-purchases.dto';
 import { UpdateBatchDto } from './dto/update-batch.dto';
 import { SellBatchDto } from './dto/sell-batch.dto';
-import { CapitalMovementType, PaymentAccount, Prisma } from '@prisma/client';
+import { CapitalMovementType, PaymentAccount, PaymentStatus, Prisma } from '@prisma/client';
 
 @Injectable()
 export class BatchesService {
@@ -348,11 +348,19 @@ export class BatchesService {
         await this.formalizersService.markAsUsed(companyId, dto.formalizerIds, batch.id, tx);
       }
 
+      const isPaid = (dto.paymentStatus ?? PaymentStatus.PAID) === PaymentStatus.PAID;
+      const paymentStatus = isPaid ? PaymentStatus.PAID : PaymentStatus.PENDING;
+      const collectedAmount = isPaid ? netSale : 0;
+      const pendingAmount = isPaid ? 0 : netSale;
+
       // 2. Cerrar lote con métricas financieras de venta y gramos refundidos
       const updatedBatch = await tx.batch.update({
         where: { id: batch.id },
         data: {
           status: 'CLOSED',
+          paymentStatus,
+          collectedAmount: new Prisma.Decimal(collectedAmount.toFixed(2)),
+          pendingAmount: new Prisma.Decimal(pendingAmount.toFixed(2)),
           initialGrossGrams: new Prisma.Decimal(initialGross.toFixed(4)),
           initialFineGrams: new Prisma.Decimal(initialFine.toFixed(4)),
           meltedGrossGrams: new Prisma.Decimal(finalGrossGrams.toFixed(4)),
@@ -401,9 +409,9 @@ export class BatchesService {
         },
       });
 
-      // 4. Ingresar la venta neta completa (capital invertido + utilidad) a la Cartera de Capital de Trabajo seleccionada
-      // La utilidad queda retenida en el capital rotatorio hasta que se realice la liquidación del periodo
-      if (netSale > 0) {
+      // 4. Si el pago es de contado, ingresar la venta neta completa a la cuenta seleccionada
+      // Si es a crédito / Cartera, el dinero ingresará cuando se registre el cobro en Cartera
+      if (isPaid && netSale > 0) {
         await this.capitalService.recordSystemMovement(
           companyId,
           CapitalMovementType.BATCH_SALE_INCOME,

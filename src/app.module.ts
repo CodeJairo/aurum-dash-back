@@ -18,6 +18,7 @@ import { SiigoModule } from './siigo/siigo.module';
 import { CompaniesModule } from './companies/companies.module';
 import { UsersModule } from './users/users.module';
 import { ArchiveModule } from './archive/archive.module';
+import { DebtsModule } from './debts/debts.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { ArchiveModule } from './archive/archive.module';
     DashboardModule,
     SettingsModule,
     CapitalModule,
+    DebtsModule,
     FormalizersModule,
     MonthlySettlementsModule,
     SiigoModule,

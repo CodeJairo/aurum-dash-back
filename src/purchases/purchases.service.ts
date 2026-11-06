@@ -9,7 +9,7 @@ import { CreatePurchaseDto, PricingModeDto, PurchaseTypeDto } from './dto/create
 import { UpdatePurchaseDto } from './dto/update-purchase.dto';
 import { UpdateHistoricalPurchaseDto } from './dto/update-historical-purchase.dto';
 import { UpdateReceptionDto } from './dto/update-reception.dto';
-import { CapitalMovementType, MaterialType, PaymentAccount, Prisma, Role } from '@prisma/client';
+import { CapitalMovementType, MaterialType, PaymentAccount, PaymentStatus, Prisma, Role } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -255,6 +255,11 @@ export class PurchasesService {
         cashAmountVal = totalCost;
       }
 
+      const isPaid = (dto.paymentStatus ?? PaymentStatus.PAID) === PaymentStatus.PAID;
+      const paymentStatus = isPaid ? PaymentStatus.PAID : PaymentStatus.PENDING;
+      const paidAmount = isPaid ? totalCost : 0;
+      const pendingAmount = isPaid ? 0 : totalCost;
+
       const purchase = await tx.purchase.create({
         data: {
           companyId,
@@ -273,6 +278,9 @@ export class PurchasesService {
           paymentMethod,
           cashAmount: cashAmountVal !== null ? new Prisma.Decimal(cashAmountVal.toFixed(2)) : null,
           bankAmount: bankAmountVal !== null ? new Prisma.Decimal(bankAmountVal.toFixed(2)) : null,
+          paymentStatus,
+          paidAmount: new Prisma.Decimal(paidAmount.toFixed(2)),
+          pendingAmount: new Prisma.Decimal(pendingAmount.toFixed(2)),
           batchId: dto.batchId ?? null,
           purchaseDate: dto.purchaseDate ? new Date(`${dto.purchaseDate.slice(0, 10)}T12:00:00`) : new Date(),
           deliveryDate: dto.deliveryDate ? new Date(`${dto.deliveryDate.slice(0, 10)}T12:00:00`) : new Date(),
@@ -284,40 +292,43 @@ export class PurchasesService {
         },
       });
 
-      // Registrar descuento del capital de cartera
-      if (paymentMethod === PaymentAccount.MIXED) {
-        if (cashAmountVal && cashAmountVal > 0) {
+      // Registrar descuento del capital de cartera solo si la compra es pagada de contado
+      // Si entra como PENDING, queda en Cartera como Cuenta por Pagar (CxP)
+      if (isPaid) {
+        if (paymentMethod === PaymentAccount.MIXED) {
+          if (cashAmountVal && cashAmountVal > 0) {
+            await this.capitalService.recordSystemMovement(
+              companyId,
+              CapitalMovementType.PURCHASE_PAYMENT,
+              -cashAmountVal,
+              `Pago (Efectivo) compra Nº ${consecutive} - ${dto.supplier || 'Cliente'}`,
+              PaymentAccount.CASH,
+              purchase.id,
+              tx,
+            );
+          }
+          if (bankAmountVal && bankAmountVal > 0) {
+            await this.capitalService.recordSystemMovement(
+              companyId,
+              CapitalMovementType.PURCHASE_PAYMENT,
+              -bankAmountVal,
+              `Pago (Banco) compra Nº ${consecutive} - ${dto.supplier || 'Cliente'}`,
+              PaymentAccount.BANK,
+              purchase.id,
+              tx,
+            );
+          }
+        } else {
           await this.capitalService.recordSystemMovement(
             companyId,
             CapitalMovementType.PURCHASE_PAYMENT,
-            -cashAmountVal,
-            `Pago (Efectivo) compra Nº ${consecutive} - ${dto.supplier || 'Cliente'}`,
-            PaymentAccount.CASH,
+            -totalCost,
+            `Pago compra Nº ${consecutive} - ${dto.supplier || 'Cliente'}`,
+            paymentMethod,
             purchase.id,
             tx,
           );
         }
-        if (bankAmountVal && bankAmountVal > 0) {
-          await this.capitalService.recordSystemMovement(
-            companyId,
-            CapitalMovementType.PURCHASE_PAYMENT,
-            -bankAmountVal,
-            `Pago (Banco) compra Nº ${consecutive} - ${dto.supplier || 'Cliente'}`,
-            PaymentAccount.BANK,
-            purchase.id,
-            tx,
-          );
-        }
-      } else {
-        await this.capitalService.recordSystemMovement(
-          companyId,
-          CapitalMovementType.PURCHASE_PAYMENT,
-          -totalCost,
-          `Pago compra Nº ${consecutive} - ${dto.supplier || 'Cliente'}`,
-          paymentMethod,
-          purchase.id,
-          tx,
-        );
       }
 
       if (dto.batchId) {
@@ -475,7 +486,6 @@ export class PurchasesService {
     }
 
     const grossGrams = dto.grossGrams !== undefined ? Number(dto.grossGrams) : Number(existing.grossGrams);
-    const pricePerGram = dto.pricePerGram !== undefined ? Number(dto.pricePerGram) : Number(existing.pricePerGram);
 
     if (existing.type === 'FORMAL') {
       const barequeroLimit = await this.getCompanyBarequeroMaxGrams(companyId);
@@ -515,18 +525,10 @@ export class PurchasesService {
       fineGrams = Number(existing.fineGrams);
     }
 
-    const pricingMode = dto.pricingMode ?? (existing.pricingMode as PricingModeDto);
-    let totalCost: number;
-    if (dto.totalCost !== undefined && dto.totalCost !== null) {
-      totalCost = Number(dto.totalCost);
-    } else if (dto.grossGrams !== undefined || dto.purity !== undefined || dto.fineGrams !== undefined || dto.pricePerGram !== undefined || dto.pricingMode !== undefined) {
-      const baseGrams = pricingMode === PricingModeDto.PER_FINE_GRAM
-        ? Number(fineGrams.toFixed(2))
-        : Number(grossGrams.toFixed(2));
-      totalCost = Math.round(baseGrams * pricePerGram);
-    } else {
-      totalCost = Number(existing.totalCost);
-    }
+    // Inmutabilidad absoluta del valor monetario original pactado
+    const pricingMode = existing.pricingMode;
+    const pricePerGram = Number(existing.pricePerGram);
+    const totalCost = Number(existing.totalCost);
 
     const previousBatchId = existing.batchId;
     const newBatchId = dto.batchId !== undefined ? dto.batchId : previousBatchId;
@@ -960,12 +962,13 @@ export class PurchasesService {
         where: { id },
       });
 
-      // 2. Revertir / Reintegrar el capital en cartera solo si era compra contable normal
-      if (existing.type === 'ACCOUNTING' && totalCost > 0) {
+      // 2. Revertir / Reintegrar el capital solo si era compra contable y tenía monto efectivamente pagado
+      const paidToRefund = Number(existing.paidAmount ?? existing.totalCost);
+      if (existing.type === 'ACCOUNTING' && paidToRefund > 0 && existing.paymentStatus !== 'PENDING') {
         const method = existing.paymentMethod || PaymentAccount.CASH;
         if (method === PaymentAccount.MIXED) {
-          const cashPortion = Number(existing.cashAmount || 0);
-          const bankPortion = Number(existing.bankAmount || 0);
+          const cashPortion = Math.min(paidToRefund, Number(existing.cashAmount || 0));
+          const bankPortion = Math.max(0, paidToRefund - cashPortion);
           if (cashPortion > 0) {
             await this.capitalService.recordSystemMovement(
               companyId,
@@ -992,7 +995,7 @@ export class PurchasesService {
           await this.capitalService.recordSystemMovement(
             companyId,
             CapitalMovementType.MANUAL_ADJUSTMENT,
-            totalCost,
+            paidToRefund,
             `Reintegro por eliminación de compra ${existing.consecutive || ''} - ${existing.supplier || 'Proveedor'}`,
             method,
             existing.id,

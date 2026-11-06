@@ -42,6 +42,17 @@ enum PaymentAccount {
   INTERNAL_TRANSFER
 }
 
+enum PaymentStatus {
+  PENDING
+  PARTIAL
+  PAID
+}
+
+enum DebtType {
+  PAYABLE
+  RECEIVABLE
+}
+
 enum ExpenseStatus {
   PENDING
   LIQUIDATED
@@ -94,6 +105,7 @@ model Company {
   sales              Sale[]
   expenses           Expense[]
   monthlySettlements MonthlySettlement[]
+  debtMovements      DebtMovement[]
 
   @@map("companies")
 }
@@ -164,6 +176,12 @@ model Batch {
   netSaleAmount               Decimal?     @default(0.00) @db.Decimal(14, 2)
   salePricePerGram            Decimal?     @db.Decimal(14, 2)
   soldAt                      DateTime?
+
+  // Cartera / Estado de cobro de la venta
+  paymentStatus               PaymentStatus @default(PAID)
+  collectedAmount             Decimal       @default(0.00) @db.Decimal(14, 2)
+  pendingAmount               Decimal       @default(0.00) @db.Decimal(14, 2)
+  debtMovements               DebtMovement[]
 
   createdById        String?
   createdBy          User?        @relation("BatchCreator", fields: [createdById], references: [id])
@@ -246,6 +264,12 @@ model Purchase {
   paymentMethod      PaymentAccount @default(CASH)
   cashAmount         Decimal?       @db.Decimal(14, 2)
   bankAmount         Decimal?       @db.Decimal(14, 2)
+
+  // Cartera / Estado de pago de la compra
+  paymentStatus      PaymentStatus  @default(PAID)
+  paidAmount         Decimal        @default(0.00) @db.Decimal(14, 2)
+  pendingAmount      Decimal        @default(0.00) @db.Decimal(14, 2)
+  debtMovements      DebtMovement[]
 
   // Control de formalización histórica (para compras importadas de Siigo con 0g)
   isFormalizedHistorically Boolean   @default(false)
@@ -563,4 +587,25 @@ model RefreshSession {
   @@index([userId])
   @@index([jti])
   @@map("refresh_sessions")
+}
+
+model DebtMovement {
+  id         String         @id @default(uuid())
+  companyId  String
+  company    Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  type       DebtType
+  purchaseId String?
+  purchase   Purchase?      @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  batchId    String?
+  batch      Batch?         @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  amount     Decimal        @db.Decimal(14, 2)
+  account    PaymentAccount
+  notes      String?
+  reference  String?
+  createdAt  DateTime       @default(now())
+
+  @@index([companyId])
+  @@index([purchaseId])
+  @@index([batchId])
+  @@map("debt_movements")
 }

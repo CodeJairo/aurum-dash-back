@@ -128,9 +128,21 @@ export class CapitalService {
       }
 
       if (targetAccount === PaymentAccount.BANK) {
-        bankBal = Number((bankBal + delta).toFixed(2));
+        const nextBank = Number((bankBal + delta).toFixed(2));
+        if (nextBank < 0) {
+          throw new BadRequestException(
+            `Fondos insuficientes en Banco. Saldo disponible: $${bankBal.toLocaleString('es-CO')}.`,
+          );
+        }
+        bankBal = nextBank;
       } else {
-        cashBal = Number((cashBal + delta).toFixed(2));
+        const nextCash = Number((cashBal + delta).toFixed(2));
+        if (nextCash < 0) {
+          throw new BadRequestException(
+            `Fondos insuficientes en Efectivo / Caja. Saldo disponible: $${cashBal.toLocaleString('es-CO')}.`,
+          );
+        }
+        cashBal = nextCash;
       }
 
       const totalAfter = Number((cashBal + bankBal).toFixed(2));
@@ -205,9 +217,19 @@ export class CapitalService {
       const totalBalance = Number((cashBal + bankBal).toFixed(2));
 
       if (dto.fromAccount === PaymentAccount.CASH) {
+        if (cashBal < transferAmount) {
+          throw new BadRequestException(
+            `Fondos insuficientes en Efectivo / Caja ($${cashBal.toLocaleString('es-CO')} disponibles) para transferir $${transferAmount.toLocaleString('es-CO')}.`,
+          );
+        }
         cashBal = Number((cashBal - transferAmount).toFixed(2));
         bankBal = Number((bankBal + transferAmount).toFixed(2));
       } else {
+        if (bankBal < transferAmount) {
+          throw new BadRequestException(
+            `Fondos insuficientes en Banco ($${bankBal.toLocaleString('es-CO')} disponibles) para transferir $${transferAmount.toLocaleString('es-CO')}.`,
+          );
+        }
         bankBal = Number((bankBal - transferAmount).toFixed(2));
         cashBal = Number((cashBal + transferAmount).toFixed(2));
       }
@@ -306,9 +328,21 @@ export class CapitalService {
     const balanceBefore = Number((cashBal + bankBal).toFixed(2));
 
     if (account === PaymentAccount.BANK) {
-      bankBal = Number((bankBal + amountDelta).toFixed(2));
+      const nextBank = Number((bankBal + amountDelta).toFixed(2));
+      if (nextBank < 0) {
+        throw new BadRequestException(
+          `Fondos insuficientes en Banco. Saldo disponible: $${bankBal.toLocaleString('es-CO')}. Se intentó descontar: $${Math.abs(amountDelta).toLocaleString('es-CO')}. Registre la operación como 'Pendiente de pago / Cartera' o transfiera fondos primero.`,
+        );
+      }
+      bankBal = nextBank;
     } else {
-      cashBal = Number((cashBal + amountDelta).toFixed(2));
+      const nextCash = Number((cashBal + amountDelta).toFixed(2));
+      if (nextCash < 0) {
+        throw new BadRequestException(
+          `Fondos insuficientes en Efectivo / Caja. Saldo disponible: $${cashBal.toLocaleString('es-CO')}. Se intentó descontar: $${Math.abs(amountDelta).toLocaleString('es-CO')}. Registre la operación como 'Pendiente de pago / Cartera' o transfiera fondos primero.`,
+        );
+      }
+      cashBal = nextCash;
     }
 
     const balanceAfter = Number((cashBal + bankBal).toFixed(2));

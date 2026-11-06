@@ -103,6 +103,27 @@ export class DashboardService {
     });
     const workingCapital = systemSetting ? Number(systemSetting.currentCapital) : 0;
 
+    const payablesAgg = await this.prisma.purchase.aggregate({
+      where: {
+        companyId,
+        paymentStatus: { in: ['PENDING', 'PARTIAL'] },
+        pendingAmount: { gt: 0 },
+      },
+      _sum: { pendingAmount: true },
+      _count: { id: true },
+    });
+
+    const receivablesAgg = await this.prisma.batch.aggregate({
+      where: {
+        companyId,
+        status: 'CLOSED',
+        paymentStatus: { in: ['PENDING', 'PARTIAL'] },
+        pendingAmount: { gt: 0 },
+      },
+      _sum: { pendingAmount: true },
+      _count: { id: true },
+    });
+
     const unsettledBatches = await this.prisma.batch.findMany({
       where: { companyId, status: 'CLOSED', monthlySettlementId: null },
       select: { id: true, netProfit: true, grossSaleAmount: true, netSaleAmount: true },
@@ -205,6 +226,10 @@ export class DashboardService {
         lastSettlementCode: lastSettlement?.code || null,
         lastSettlementDate: lastSettlement?.settlementDate || null,
         lastSettlementProfit: lastSettlement ? Number(lastSettlement.netProfit) : null,
+        totalPayable: Number(payablesAgg._sum.pendingAmount || 0),
+        payableCount: payablesAgg._count.id || 0,
+        totalReceivable: Number(receivablesAgg._sum.pendingAmount || 0),
+        receivableCount: receivablesAgg._count.id || 0,
       },
       activeInventory: {
         openBatchesCount: openBatches.length,
