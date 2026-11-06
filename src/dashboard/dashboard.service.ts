@@ -180,15 +180,52 @@ export class DashboardService {
 
     const monthlyPurchasesAgg = await this.prisma.purchase.aggregate({
       where: { companyId, purchaseDate: { gte: startOfMonth }, type: 'ACCOUNTING' },
-      _sum: { fineGrams: true, totalCost: true },
+      _sum: { fineGrams: true, totalCost: true, paidAmount: true, pendingAmount: true },
       _count: { id: true },
     });
+
+    const monthlyPurchasesTotal = Number(monthlyPurchasesAgg._sum.totalCost || 0);
+    const monthlyPurchasesDebt = Number(monthlyPurchasesAgg._sum.pendingAmount || 0);
+    const monthlyPurchasesPaid = monthlyPurchasesTotal - monthlyPurchasesDebt;
 
     const monthlySalesAgg = await this.prisma.sale.aggregate({
       where: { companyId, saleDate: { gte: startOfMonth } },
       _sum: { totalAmount: true },
       _count: { id: true },
     });
+
+    // Calcular ventas del mes cobradas vs por cobrar según el estado del lote asociado
+    const monthlySalesWithBatch = await this.prisma.sale.findMany({
+      where: { companyId, saleDate: { gte: startOfMonth } },
+      select: {
+        totalAmount: true,
+        batch: {
+          select: {
+            paymentStatus: true,
+            pendingAmount: true,
+            grossSaleAmount: true,
+            netSaleAmount: true,
+          },
+        },
+      },
+    });
+
+    let monthlySalesCollected = 0;
+    let monthlySalesPending = 0;
+    for (const sale of monthlySalesWithBatch) {
+      const saleAmt = Number(sale.totalAmount || 0);
+      if (!sale.batch || sale.batch.paymentStatus === 'PAID') {
+        monthlySalesCollected += saleAmt;
+      } else {
+        const batchPending = Number(sale.batch.pendingAmount || 0);
+        // Si el lote tiene deuda pendiente en Cartera
+        if (batchPending > 0) {
+          monthlySalesPending += saleAmt;
+        } else {
+          monthlySalesCollected += saleAmt;
+        }
+      }
+    }
 
     // 6. Actividad Reciente (últimas compras normales y ventas)
     const recentPurchases = await this.prisma.purchase.findMany({
@@ -275,9 +312,13 @@ export class DashboardService {
         avgMarginPercent: Number(avgMarginPercent.toFixed(1)),
         closedBatchesCount: closedBatches.length,
         monthlyPurchasedFineGrams: Number(monthlyPurchasesAgg._sum.fineGrams || 0),
-        monthlyPurchasesCost: Number(monthlyPurchasesAgg._sum.totalCost || 0),
+        monthlyPurchasesCost: monthlyPurchasesTotal,
+        monthlyPurchasesPaid,
+        monthlyPurchasesDebt,
         monthlyPurchasesCount: monthlyPurchasesAgg._count.id,
         monthlySalesRevenue: Number(monthlySalesAgg._sum.totalAmount || 0),
+        monthlySalesCollected,
+        monthlySalesPending,
         monthlySalesCount: monthlySalesAgg._count.id,
       },
       partnerDistribution: {
