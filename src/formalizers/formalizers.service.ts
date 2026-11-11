@@ -412,6 +412,24 @@ export class FormalizersService {
     });
   }
 
+  async toggleBlock(companyId: string, id: string, reason?: string) {
+    const formalizer = await this.findOne(companyId, id);
+    const willBlock = !formalizer.isBlocked;
+
+    return this.prisma.formalizer.update({
+      where: { id },
+      data: {
+        isBlocked: willBlock,
+        blockedReason: willBlock ? (reason?.trim() || null) : null,
+        blockedAt: willBlock ? new Date() : null,
+      },
+      include: {
+        documents: true,
+        usedInBatch: true,
+      },
+    });
+  }
+
   private generateDocumentName(category: string, documentNumber: string, originalName?: string): string {
     const categoryMap: Record<string, string> = {
       CEDULA_FRONT: 'cedula_frontal',

@@ -137,6 +137,27 @@ export class PurchasesService {
           throw new BadRequestException('La fotografía del barequero es obligatoria para la recepción de material.');
         }
 
+        // Validar si el barequero está bloqueado para compras
+        if (dto.vendorDoc) {
+          const cleanDoc = dto.vendorDoc.trim();
+          const existingFormalizer = await tx.formalizer.findUnique({
+            where: {
+              companyId_document: {
+                companyId,
+                document: cleanDoc,
+              },
+            },
+            select: { id: true, name: true, isBlocked: true, blockedReason: true },
+          });
+
+          if (existingFormalizer?.isBlocked) {
+            const reasonMsg = existingFormalizer.blockedReason ? ` (Motivo: "${existingFormalizer.blockedReason}")` : '';
+            throw new BadRequestException(
+              `El barequero "${existingFormalizer.name}" (Doc: ${cleanDoc}) se encuentra BLOQUEADO para compras${reasonMsg}. Desbloquéalo en el módulo de Formalizadores antes de registrar la compra.`,
+            );
+          }
+        }
+
         const purchase = await tx.purchase.create({
           data: {
             companyId,

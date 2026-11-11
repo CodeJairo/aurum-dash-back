@@ -24,7 +24,7 @@ export class SiigoController {
   }
 
   @Post('purchases/:id/sync')
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.BAREQUERO_OPERATOR)
   async syncPurchaseReceipt(
     @CurrentCompanyId() companyId: string,
     @Param('id') purchaseId: string,

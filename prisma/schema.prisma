@@ -370,6 +370,11 @@ model Formalizer {
   usedInBatch   Batch?           @relation(fields: [usedInBatchId], references: [id], onDelete: SetNull)
   usedAt        DateTime?
 
+  // Estado de bloqueo operativo
+  isBlocked     Boolean          @default(false)
+  blockedReason String?
+  blockedAt     DateTime?
+
   documents     BarequeroDocument[]
 
   createdAt     DateTime         @default(now())

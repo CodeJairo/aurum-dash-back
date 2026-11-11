@@ -186,6 +186,16 @@ export class FormalizersController {
     return this.formalizersService.update(companyId, id, dto);
   }
 
+  @Patch(':id/toggle-block')
+  @Roles(Role.ADMIN, Role.BAREQUERO_OPERATOR)
+  toggleBlock(
+    @CurrentCompanyId() companyId: string,
+    @Param('id') id: string,
+    @Body('reason') reason?: string,
+  ) {
+    return this.formalizersService.toggleBlock(companyId, id, reason);
+  }
+
   @Post(':id/documents')
   @Roles(Role.ADMIN, Role.BAREQUERO_OPERATOR)
   @UseInterceptors(FileInterceptor('file'))
