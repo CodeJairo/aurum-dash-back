@@ -91,4 +91,22 @@ export class DebtsController {
   ) {
     return this.debtsService.sendBatchToDebt(companyId, batchId);
   }
+
+  @Post('payables/:purchaseId/write-off')
+  @Roles(Role.ADMIN)
+  writeOffPayable(
+    @CurrentCompanyId() companyId: string,
+    @Param('purchaseId') purchaseId: string,
+  ) {
+    return this.debtsService.writeOffPayable(companyId, purchaseId);
+  }
+
+  @Post('receivables/:batchId/write-off')
+  @Roles(Role.ADMIN)
+  writeOffReceivable(
+    @CurrentCompanyId() companyId: string,
+    @Param('batchId') batchId: string,
+  ) {
+    return this.debtsService.writeOffReceivable(companyId, batchId);
+  }
 }

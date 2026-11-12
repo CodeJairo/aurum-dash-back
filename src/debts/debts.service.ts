@@ -133,7 +133,8 @@ export class DebtsService {
       const effectivePay = Math.min(payAmount, pending);
       const newPaid = Number((Number(purchase.paidAmount || 0) + effectivePay).toFixed(2));
       const newPending = Number((pending - effectivePay).toFixed(2));
-      const newStatus = newPending <= 0.001 ? PaymentStatus.PAID : PaymentStatus.PARTIAL;
+      // Umbral de 1 peso: cualquier residuo menor a $1 COP se absorbe como saldado
+      const newStatus = newPending < 1 ? PaymentStatus.PAID : PaymentStatus.PARTIAL;
 
       // Descontar del bolsillo seleccionado en Capital (valida saldo no negativo)
       const targetAccount = dto.account === PaymentAccount.BANK ? PaymentAccount.BANK : PaymentAccount.CASH;
@@ -164,7 +165,7 @@ export class DebtsService {
         where: { id: purchase.id },
         data: {
           paidAmount: new Prisma.Decimal(newPaid.toFixed(2)),
-          pendingAmount: new Prisma.Decimal(Math.max(0, newPending).toFixed(2)),
+          pendingAmount: new Prisma.Decimal((newStatus === PaymentStatus.PAID ? 0 : Math.max(0, newPending)).toFixed(2)),
           paymentStatus: newStatus,
         },
         include: {
@@ -216,7 +217,8 @@ export class DebtsService {
       const effectiveCollect = Math.min(collectAmount, pending);
       const newCollected = Number((Number(batch.collectedAmount || 0) + effectiveCollect).toFixed(2));
       const newPending = Number((pending - effectiveCollect).toFixed(2));
-      const newStatus = newPending <= 0.001 ? PaymentStatus.PAID : PaymentStatus.PARTIAL;
+      // Umbral de 1 peso: cualquier residuo menor a $1 COP se absorbe como saldado
+      const newStatus = newPending < 1 ? PaymentStatus.PAID : PaymentStatus.PARTIAL;
 
       // Ingresar el dinero al bolsillo seleccionado en Capital
       const targetAccount = dto.account === PaymentAccount.BANK ? PaymentAccount.BANK : PaymentAccount.CASH;
@@ -247,7 +249,7 @@ export class DebtsService {
         where: { id: batch.id },
         data: {
           collectedAmount: new Prisma.Decimal(newCollected.toFixed(2)),
-          pendingAmount: new Prisma.Decimal(Math.max(0, newPending).toFixed(2)),
+          pendingAmount: new Prisma.Decimal((newStatus === PaymentStatus.PAID ? 0 : Math.max(0, newPending)).toFixed(2)),
           paymentStatus: newStatus,
         },
         include: {
@@ -538,6 +540,66 @@ export class DebtsService {
           paymentStatus: PaymentStatus.PENDING,
           collectedAmount: new Prisma.Decimal(0),
           pendingAmount: new Prisma.Decimal(netSale.toFixed(2)),
+        },
+      });
+    });
+  }
+
+  /**
+   * Ajuste administrativo: cierra una deuda CxP sin mover dinero de Capital
+   * ni generar movimientos de trazabilidad ficticios.
+   * Solo para admin. Absorbe diferencias residuales de redondeo.
+   */
+  async writeOffPayable(companyId: string, purchaseId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const purchase = await tx.purchase.findUnique({ where: { id: purchaseId } });
+
+      if (!purchase || purchase.companyId !== companyId) {
+        throw new NotFoundException('Compra no encontrada');
+      }
+
+      const pending = Number(purchase.pendingAmount || 0);
+      if (pending <= 0) {
+        throw new BadRequestException('Esta compra ya se encuentra 100% saldada');
+      }
+
+      // Cerrar la deuda limpiamente: pendingAmount = 0, paidAmount = totalCost
+      return tx.purchase.update({
+        where: { id: purchase.id },
+        data: {
+          paidAmount: new Prisma.Decimal(Number(purchase.totalCost).toFixed(2)),
+          pendingAmount: new Prisma.Decimal('0.00'),
+          paymentStatus: PaymentStatus.PAID,
+        },
+      });
+    });
+  }
+
+  /**
+   * Ajuste administrativo: cierra una deuda CxC sin mover dinero de Capital
+   * ni generar movimientos de trazabilidad ficticios.
+   * Solo para admin. Absorbe diferencias residuales de redondeo.
+   */
+  async writeOffReceivable(companyId: string, batchId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const batch = await tx.batch.findUnique({ where: { id: batchId } });
+
+      if (!batch || batch.companyId !== companyId) {
+        throw new NotFoundException('Lote no encontrado');
+      }
+
+      const pending = Number(batch.pendingAmount || 0);
+      if (pending <= 0) {
+        throw new BadRequestException('Este lote ya se encuentra 100% cobrado');
+      }
+
+      // Cerrar la deuda limpiamente: pendingAmount = 0, collectedAmount = netSaleAmount
+      return tx.batch.update({
+        where: { id: batch.id },
+        data: {
+          collectedAmount: new Prisma.Decimal(Number(batch.netSaleAmount || 0).toFixed(2)),
+          pendingAmount: new Prisma.Decimal('0.00'),
+          paymentStatus: PaymentStatus.PAID,
         },
       });
     });
