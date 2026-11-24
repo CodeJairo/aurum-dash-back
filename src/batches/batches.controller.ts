@@ -7,10 +7,13 @@ import {
   Patch,
   Post,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { Role } from '@prisma/client';
 import { BatchesService } from './batches.service';
+import { BatchSettlementExcelService } from './batch-settlement-excel.service';
 import { CreateBatchDto } from './dto/create-batch.dto';
 import { UnifyPurchasesDto } from './dto/unify-purchases.dto';
 import { UpdateBatchDto } from './dto/update-batch.dto';
@@ -23,7 +26,10 @@ import { CurrentCompanyId } from '../auth/current-user.decorator';
 @Controller('batches')
 @UseGuards(AuthGuard, RolesGuard)
 export class BatchesController {
-  constructor(private readonly batchesService: BatchesService) {}
+  constructor(
+    private readonly batchesService: BatchesService,
+    private readonly settlementExcelService: BatchSettlementExcelService,
+  ) {}
 
   @Post()
   @Roles(Role.ADMIN)
@@ -45,6 +51,46 @@ export class BatchesController {
     @Body() dto: SellBatchDto,
   ) {
     return this.batchesService.sellBatch(companyId, id, dto);
+  }
+
+  @Post(':id/settlement-excel')
+  @Roles(Role.ADMIN)
+  async downloadSettlementExcelPost(
+    @CurrentCompanyId() companyId: string,
+    @Param('id') id: string,
+    @Body() body: { purchaseIds?: string[] },
+    @Res() res: Response,
+  ) {
+    const { buffer, filename } = await this.settlementExcelService.generateSettlementWorkbook(
+      companyId,
+      id,
+      body?.purchaseIds,
+    );
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.send(buffer);
+  }
+
+  @Get(':id/settlement-excel')
+  @Roles(Role.ADMIN)
+  async downloadSettlementExcelGet(
+    @CurrentCompanyId() companyId: string,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const { buffer, filename } = await this.settlementExcelService.generateSettlementWorkbook(
+      companyId,
+      id,
+    );
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.send(buffer);
   }
 
   @Get(':id/formalization-suggestions')
