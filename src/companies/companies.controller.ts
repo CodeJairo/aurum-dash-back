@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -19,6 +20,8 @@ import { UsersService } from '../users/users.service';
 import { CreateUserDto } from '../users/dto/create-user.dto';
 import { UpdateUserDto } from '../users/dto/update-user.dto';
 import { ResetPasswordDto } from '../users/dto/reset-password.dto';
+import { SubscriptionsService } from './subscriptions.service';
+import { CreateSubscriptionPaymentDto, UpdateSubscriptionDto } from './dto/subscription.dto';
 
 @Controller('companies')
 @UseGuards(AuthGuard, RolesGuard)
@@ -27,6 +30,7 @@ export class CompaniesController {
   constructor(
     private readonly companiesService: CompaniesService,
     private readonly usersService: UsersService,
+    private readonly subscriptionsService: SubscriptionsService,
   ) {}
 
   @Post()
@@ -37,6 +41,32 @@ export class CompaniesController {
   @Get()
   findAll() {
     return this.companiesService.findAll();
+  }
+
+  /** Resumen de facturación de suscripciones (todas las empresas). */
+  @Get('billing/summary')
+  billingSummary() {
+    return this.subscriptionsService.billingSummary();
+  }
+
+  @Patch(':id/subscription')
+  updateSubscription(@Param('id') id: string, @Body() dto: UpdateSubscriptionDto) {
+    return this.subscriptionsService.updateSubscription(id, dto);
+  }
+
+  @Get(':id/payments')
+  listPayments(@Param('id') id: string) {
+    return this.subscriptionsService.listPayments(id);
+  }
+
+  @Post(':id/payments')
+  addPayment(@Param('id') id: string, @Body() dto: CreateSubscriptionPaymentDto) {
+    return this.subscriptionsService.addPayment(id, dto);
+  }
+
+  @Delete(':id/payments/:paymentId')
+  removePayment(@Param('id') id: string, @Param('paymentId') paymentId: string) {
+    return this.subscriptionsService.removePayment(id, paymentId);
   }
 
   @Get(':id')

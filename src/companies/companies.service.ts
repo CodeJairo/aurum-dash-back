@@ -128,6 +128,11 @@ export class CompaniesService {
             batches: true,
           },
         },
+        subscriptionPayments: {
+          orderBy: { paidAt: 'desc' },
+          take: 1,
+          select: { paidAt: true, amount: true },
+        },
       },
     });
 
@@ -141,6 +146,16 @@ export class CompaniesService {
       city: c.city,
       isActive: c.isActive,
       createdAt: c.createdAt,
+      logoUrl: c.logoUrl,
+      subscription: {
+        price: c.subscriptionPrice !== null ? Number(c.subscriptionPrice) : null,
+        billingCycle: c.billingCycle,
+        startDate: c.subscriptionStartDate,
+        nextBillingDate: c.nextBillingDate,
+        notes: c.subscriptionNotes,
+        lastPaymentAt: c.subscriptionPayments[0]?.paidAt || null,
+        lastPaymentAmount: c.subscriptionPayments[0] ? Number(c.subscriptionPayments[0].amount) : null,
+      },
       stats: {
         usersCount: c._count.users,
         purchasesCount: c._count.purchases,
