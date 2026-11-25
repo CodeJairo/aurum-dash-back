@@ -27,7 +27,7 @@ export class SellBatchDto {
   @IsNumber()
   @IsPositive()
   @TransformMoney()
-  formalizationCostPerPerson?: number = 170000;
+  formalizationCostPerPerson?: number; // Si no se envía, se usa SystemSetting.defaultFormalizationCost
 
   @IsOptional()
   @IsNumber()

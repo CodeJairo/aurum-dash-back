@@ -19,6 +19,7 @@ import { CompaniesModule } from './companies/companies.module';
 import { UsersModule } from './users/users.module';
 import { ArchiveModule } from './archive/archive.module';
 import { DebtsModule } from './debts/debts.module';
+import { BrandingModule } from './branding/branding.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { DebtsModule } from './debts/debts.module';
     MonthlySettlementsModule,
     SiigoModule,
     ArchiveModule,
+    BrandingModule,
   ],
   controllers: [AppController],
   providers: [AppService],

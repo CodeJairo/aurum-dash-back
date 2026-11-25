@@ -3,6 +3,21 @@ import * as ExcelJS from 'exceljs';
 import * as path from 'path';
 import * as fs from 'fs';
 import { CompleteVinculacionDto } from './dto/complete-vinculacion.dto';
+import { CompanyLogo, replaceTemplateLogo } from '../common/helpers/company-logo.helper';
+
+/** Nombre del titular que viene fijo en la plantilla original del formulario. */
+const TEMPLATE_HOLDER_NAME = 'HERRERA RENTERIA DANIEL CAMILO';
+
+export interface VinculacionCompanyContext {
+  /** Ciudad por defecto (SystemSetting.city) */
+  cityDefault?: string;
+  /** Departamento por defecto (SystemSetting.department) */
+  departmentDefault?: string;
+  /** Razón social de la empresa que recibe la autorización de datos (SystemSetting.legalName) */
+  companyLegalName?: string;
+  /** Logo de la empresa (o null para dejar el formulario sin logo) */
+  logo?: CompanyLogo | null;
+}
 
 @Injectable()
 export class VinculacionExcelService {
@@ -26,7 +41,11 @@ export class VinculacionExcelService {
     );
   }
 
-  async generateVinculacionWorkbook(dto: CompleteVinculacionDto, cityDefault: string = 'Quibdó'): Promise<Buffer> {
+  async generateVinculacionWorkbook(
+    dto: CompleteVinculacionDto,
+    context: VinculacionCompanyContext = {},
+  ): Promise<Buffer> {
+    const cityDefault = context.cityDefault || '';
     const templatePath = this.getTemplatePath();
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.readFile(templatePath);
@@ -73,7 +92,7 @@ export class VinculacionExcelService {
     ws.getCell('H19').value = `Teléfono fijo y/o celular: ${dto.phone || 'N/A'}`;
 
     const miningMun = dto.miningMunicipality || effectiveCity;
-    const miningDept = dto.miningDepartment || 'Chocó';
+    const miningDept = dto.miningDepartment || context.departmentDefault || '';
     ws.getCell('A20').value = `Municipio donde ejerce la mineria: ${miningMun}`;
     ws.getCell('J20').value = `Departamento: ${miningDept}`;
 
@@ -155,7 +174,37 @@ export class VinculacionExcelService {
     ws.getCell('A68').value = `Nombre y apellidos: ${fullName}`;
     ws.getCell('A72').value = `Cedula: ${dto.document.trim()}`;
 
+    // Marca de la empresa: razón social en las autorizaciones de datos y logo
+    this.replaceHolderName(ws, context.companyLegalName);
+    replaceTemplateLogo(workbook, ws, context.logo ?? null);
+
     const buffer = await workbook.xlsx.writeBuffer();
     return Buffer.from(buffer);
+  }
+
+  /**
+   * La plantilla trae el nombre del titular original en los textos de autorización (A44, A63).
+   * Se reemplaza por la razón social de la empresa, conservando el formato del texto enriquecido.
+   */
+  private replaceHolderName(ws: ExcelJS.Worksheet, legalName?: string): void {
+    const replacement = (legalName || '').trim().toUpperCase() || 'LA EMPRESA';
+    ws.eachRow((row) => {
+      row.eachCell((cell) => {
+        const value: any = cell.value;
+        if (value && Array.isArray(value.richText)) {
+          let changed = false;
+          const richText = value.richText.map((run: any) => {
+            if (typeof run.text === 'string' && run.text.includes(TEMPLATE_HOLDER_NAME)) {
+              changed = true;
+              return { ...run, text: run.text.split(TEMPLATE_HOLDER_NAME).join(replacement) };
+            }
+            return run;
+          });
+          if (changed) cell.value = { ...value, richText };
+        } else if (typeof value === 'string' && value.includes(TEMPLATE_HOLDER_NAME)) {
+          cell.value = value.split(TEMPLATE_HOLDER_NAME).join(replacement);
+        }
+      });
+    });
   }
 }

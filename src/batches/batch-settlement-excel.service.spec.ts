@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BatchSettlementExcelService } from './batch-settlement-excel.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { StorageService } from '../storage/storage.service';
 import * as ExcelJS from 'exceljs';
 
 describe('BatchSettlementExcelService', () => {
@@ -23,8 +24,9 @@ describe('BatchSettlementExcelService', () => {
 
   const mockCompany = {
     id: 'comp-1',
-    name: 'Atlas Capital',
+    name: 'Compraventa Demo',
     nit: '901234567-1',
+    slug: 'compraventa-demo',
   };
 
   const mockPurchases = [
@@ -83,6 +85,7 @@ describe('BatchSettlementExcelService', () => {
       providers: [
         BatchSettlementExcelService,
         { provide: PrismaService, useValue: prisma },
+        { provide: StorageService, useValue: { getFileStream: jest.fn() } },
       ],
     }).compile();
 
@@ -102,7 +105,7 @@ describe('BatchSettlementExcelService', () => {
     const result = await service.generateSettlementWorkbook('comp-1', 'batch-1', ['p-1', 'p-2']);
 
     expect(result).toBeDefined();
-    expect(result.filename).toBe('Atlas_Capital_Liquidacion_Consecutivos_LOTE-2026-100.xlsx');
+    expect(result.filename).toBe('Liquidacion_Consecutivos_compraventa-demo_LOTE-2026-100.xlsx');
     expect(result.buffer).toBeInstanceOf(Buffer);
     expect(result.buffer.length).toBeGreaterThan(0);
 
@@ -149,7 +152,7 @@ describe('BatchSettlementExcelService', () => {
 
     const result = await service.generateSettlementWorkbook('comp-1', 'batch-1');
 
-    expect(result.filename).toBe('Atlas_Capital_Liquidacion_Consecutivos_LOTE-2026-100.xlsx');
+    expect(result.filename).toBe('Liquidacion_Consecutivos_compraventa-demo_LOTE-2026-100.xlsx');
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(result.buffer as any);
 

@@ -8,6 +8,7 @@ import { CreateFormalizerDto } from './dto/create-formalizer.dto';
 import { CompleteVinculacionDto } from './dto/complete-vinculacion.dto';
 import { FormalizerStatus, Prisma } from '@prisma/client';
 import { DEFAULT_REQUIRED_DOCUMENTS } from '../settings/settings.service';
+import { loadCompanyLogo } from '../common/helpers/company-logo.helper';
 import {
   REQUIRED_BAREQUERO_DOCUMENT_CATEGORIES,
   evaluateBarequeroDocuments,
@@ -166,7 +167,7 @@ export class FormalizersService {
           document: docClean,
           address: dto.address.trim(),
           phone: dto.phone?.trim() || null,
-          city: dto.city?.trim() || 'Quibdó-Chocó',
+          city: dto.city?.trim() || (await this.getCompanyDefaultCity(companyId)),
           country: 'Colombia',
           status: FormalizerStatus.AVAILABLE,
         },
@@ -176,9 +177,13 @@ export class FormalizersService {
     const setting = await this.prisma.systemSetting.findUnique({
       where: { companyId },
     });
-    const defaultCity = setting?.city || 'Quibdó';
-
-    const excelBuffer = await this.vinculacionExcelService.generateVinculacionWorkbook(dto, defaultCity);
+    const logo = await loadCompanyLogo(this.prisma, this.storageService, companyId);
+    const excelBuffer = await this.vinculacionExcelService.generateVinculacionWorkbook(dto, {
+      cityDefault: setting?.city || '',
+      departmentDefault: setting?.department || '',
+      companyLegalName: setting?.legalName || '',
+      logo,
+    });
 
     const fileName = `Formulario_Vinculacion_${docClean}.xlsx`;
     const uploadRes = await this.storageService.uploadBuffer(
@@ -238,7 +243,7 @@ export class FormalizersService {
         phone: dto.phone || null,
         city: dto.city || formalizer.city,
         miningMunicipality: dto.miningMunicipality || null,
-        miningDepartment: dto.miningDepartment || 'Chocó',
+        miningDepartment: dto.miningDepartment || setting?.department || null,
         email: dto.email || null,
         ciiuCode: dto.ciiuCode || '0729',
         declaresRent: dto.declaresRent ?? false,
@@ -278,11 +283,23 @@ export class FormalizersService {
         document: docClean,
         address: dto.address.trim(),
         phone: dto.phone?.trim() || '',
-        city: dto.city?.trim() || 'Quibdó-Chocó',
+        city: dto.city?.trim() || (await this.getCompanyDefaultCity(companyId)),
         country: dto.country?.trim() || 'Colombia',
         status: FormalizerStatus.AVAILABLE,
       },
     });
+  }
+
+  /** Ciudad por defecto de la empresa (SystemSetting.city) para registros sin ciudad. */
+  private async getCompanyDefaultCity(
+    companyId: string,
+    client: Prisma.TransactionClient | PrismaService = this.prisma,
+  ): Promise<string> {
+    const setting = await client.systemSetting.findUnique({
+      where: { companyId },
+      select: { city: true },
+    });
+    return setting?.city?.trim() || '';
   }
 
   async upsertFromBarequero(
@@ -313,7 +330,7 @@ export class FormalizersService {
           document: docClean,
           address: data.address.trim(),
           phone: data.phone?.trim() || '',
-          city: data.city?.trim() || 'Quibdó-Chocó',
+          city: data.city?.trim() || (await this.getCompanyDefaultCity(companyId, client)),
           country: data.country?.trim() || 'Colombia',
           status: FormalizerStatus.AVAILABLE,
         },

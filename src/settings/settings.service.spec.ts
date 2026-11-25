@@ -43,7 +43,7 @@ describe('SettingsService - Consecutivos Dinámicos', () => {
   it('debe devolver 1 si no hay compras formales registradas', async () => {
     prisma.purchase.findMany.mockResolvedValue([]);
 
-    const next = await service.calculateNextConsecutiveNum('DH-');
+    const next = await service.calculateNextConsecutiveNum('company-1', 'DH-');
     expect(next).toBe(1);
   });
 
@@ -55,7 +55,7 @@ describe('SettingsService - Consecutivos Dinámicos', () => {
       { consecutive: 'DH-20' },
     ]);
 
-    const next = await service.calculateNextConsecutiveNum('DH-');
+    const next = await service.calculateNextConsecutiveNum('company-1', 'DH-');
     expect(next).toBe(101);
   });
 
@@ -67,7 +67,7 @@ describe('SettingsService - Consecutivos Dinámicos', () => {
       { consecutive: 'DH-99' },
     ]);
 
-    const next = await service.calculateNextConsecutiveNum('DH-');
+    const next = await service.calculateNextConsecutiveNum('company-1', 'DH-');
     expect(next).toBe(100);
   });
 

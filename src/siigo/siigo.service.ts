@@ -63,6 +63,12 @@ export interface SiigoCompanyConfig {
   creditAccountCode: string;
   cashPaymentMethodId: number;
   active: boolean;
+  /** Código DANE de departamento para crear terceros (por defecto 27 = Chocó) */
+  stateCode: string;
+  /** Código DANE de municipio para crear terceros (por defecto 27001 = Quibdó) */
+  cityCode: string;
+  /** Ciudad de la empresa, usada como dirección/ciudad por defecto de terceros importados */
+  defaultCity: string;
 }
 
 @Injectable()
@@ -97,6 +103,10 @@ export class SiigoService {
 
     const active = setting?.siigoActive ?? true;
 
+    const stateCode = (setting?.siigoStateCode || '27').trim();
+    const cityCode = (setting?.siigoCityCode || '27001').trim();
+    const defaultCity = (setting?.city || '').trim();
+
     return {
       apiUrl,
       username,
@@ -107,6 +117,9 @@ export class SiigoService {
       creditAccountCode,
       cashPaymentMethodId,
       active,
+      stateCode,
+      cityCode,
+      defaultCity,
     };
   }
 
@@ -270,11 +283,11 @@ export class SiigoService {
       vat_responsible: false,
       fiscal_responsibilities: [{ code: 'R-99-PN' }], // No responsable de IVA
       address: {
-        address: params.address?.trim() || 'Quibdó, Chocó',
+        address: params.address?.trim() || config.defaultCity || 'Sin dirección',
         city: {
           country_code: 'Co',
-          state_code: '27', // Chocó
-          city_code: '27001', // Quibdó
+          state_code: config.stateCode, // Código DANE departamento (configurable en Ajustes)
+          city_code: config.cityCode, // Código DANE municipio (configurable en Ajustes)
         },
       },
       phones: params.phone?.trim()
@@ -561,8 +574,8 @@ export class SiigoService {
           }
 
           // Dirección y Ciudad
-          const address = item.address?.address?.trim() || 'Quibdó, Chocó';
-          const city = item.address?.city?.city_name || 'Quibdó-Chocó';
+          const address = item.address?.address?.trim() || config.defaultCity || '';
+          const city = item.address?.city?.city_name || config.defaultCity || '';
 
           // Verificar si ya existe en la tabla formalizers para esta empresa
           const existing = await this.prisma.formalizer.findFirst({
@@ -632,7 +645,7 @@ export class SiigoService {
     const settings = await this.prisma.systemSetting.findUnique({
       where: { companyId },
     });
-    const prefix = settings?.consecutivePrefix || 'DH-';
+    const prefix = settings?.consecutivePrefix || 'CP-';
 
     while (hasMore) {
       try {
@@ -661,7 +674,6 @@ export class SiigoService {
           // Filtrar únicamente los recibos de Aportes Barequeros configurados o RP-2
           const isAportes =
             item.document?.id === config.rpDocumentId ||
-            item.document?.id === 31163 ||
             (item.name && item.name.startsWith('RP-2'));
           if (!isAportes) {
             skipped++;
@@ -729,8 +741,8 @@ export class SiigoService {
               consecutive: targetConsecutive,
               supplier: supplierName,
               vendorDoc: rawDoc || null,
-              vendorAddress: 'Quibdó, Chocó',
-              vendorCity: 'Quibdó-Chocó',
+              vendorAddress: config.defaultCity || null,
+              vendorCity: config.defaultCity || null,
               vendorCountry: 'Colombia',
               description: item.items?.[0]?.description || 'Anticipo de aporte contrato barequero',
               grossGrams: 0,

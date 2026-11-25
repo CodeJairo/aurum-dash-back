@@ -20,16 +20,19 @@ export class SettingsService {
     });
 
     if (!settings) {
+      // Crear la configuración a partir de los datos de la empresa (sin valores de una empresa específica)
+      const company = await this.prisma.company.findUnique({ where: { id: companyId } });
       settings = await this.prisma.systemSetting.create({
         data: {
           companyId,
-          legalName: 'Compraventa de Oro',
-          document: '',
-          address: '',
-          phone: '',
-          city: 'Quibdó',
+          legalName: company?.name || 'Compraventa de Oro',
+          document: company?.nit || '',
+          address: company?.address || '',
+          phone: company?.phone || '',
+          city: company?.city || '',
+          department: '',
           country: 'Colombia',
-          consecutivePrefix: 'DH-',
+          consecutivePrefix: 'CP-',
           lastConsecutiveNum: 0,
           requiredDocuments: DEFAULT_REQUIRED_DOCUMENTS,
         },
@@ -77,6 +80,7 @@ export class SettingsService {
         address: dto.address !== undefined ? dto.address : current.address,
         phone: dto.phone !== undefined ? dto.phone : current.phone,
         city: dto.city !== undefined ? dto.city : current.city,
+        department: dto.department !== undefined ? dto.department : current.department,
         country: dto.country !== undefined ? dto.country : current.country,
         consecutivePrefix: dto.consecutivePrefix !== undefined ? dto.consecutivePrefix : current.consecutivePrefix,
         lastConsecutiveNum: dto.lastConsecutiveNum !== undefined ? dto.lastConsecutiveNum : current.lastConsecutiveNum,
@@ -94,6 +98,16 @@ export class SettingsService {
           dto.barequeroMaxGrams !== undefined
             ? new Prisma.Decimal(Number(dto.barequeroMaxGrams).toFixed(2))
             : current.barequeroMaxGrams,
+        siigoStateCode: dto.siigoStateCode !== undefined ? dto.siigoStateCode : current.siigoStateCode,
+        siigoCityCode: dto.siigoCityCode !== undefined ? dto.siigoCityCode : current.siigoCityCode,
+        fourPerThousandRate:
+          dto.fourPerThousandRate !== undefined
+            ? new Prisma.Decimal(Number(dto.fourPerThousandRate).toFixed(5))
+            : current.fourPerThousandRate,
+        defaultFormalizationCost:
+          dto.defaultFormalizationCost !== undefined
+            ? new Prisma.Decimal(Number(dto.defaultFormalizationCost).toFixed(2))
+            : current.defaultFormalizationCost,
       },
     });
   }
@@ -114,7 +128,7 @@ export class SettingsService {
       select: { consecutive: true },
     });
 
-    const cleanPrefix = (prefix || 'DH-').toUpperCase();
+    const cleanPrefix = (prefix || 'CP-').toUpperCase();
     for (const p of purchases) {
       if (p.consecutive) {
         const upper = p.consecutive.toUpperCase();

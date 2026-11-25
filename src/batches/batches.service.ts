@@ -325,9 +325,19 @@ export class BatchesService {
       throw new BadRequestException('Debes seleccionar las compras a barequeros necesarias para formalizar la venta del lote.');
     }
 
+    // Reglas de negocio por empresa (los defaults del esquema replican los valores históricos: 0,004 y $170.000)
+    const saleRules = await this.prisma.systemSetting.findUnique({
+      where: { companyId },
+      select: { fourPerThousandRate: true, defaultFormalizationCost: true },
+    });
+    const fourPerThousandRate = saleRules?.fourPerThousandRate != null ? Number(saleRules.fourPerThousandRate) : 0.004;
+    const defaultFormalizationCost =
+      saleRules?.defaultFormalizationCost != null ? Number(saleRules.defaultFormalizationCost) : 170000;
+
     const grossSale = Number(dto.grossSaleAmount);
-    const fourPerThousand = Number((grossSale * 0.004).toFixed(2));
-    const costPerPerson = dto.formalizationCostPerPerson !== undefined ? Number(dto.formalizationCostPerPerson) : 170000;
+    const fourPerThousand = Number((grossSale * fourPerThousandRate).toFixed(2));
+    const costPerPerson =
+      dto.formalizationCostPerPerson !== undefined ? Number(dto.formalizationCostPerPerson) : defaultFormalizationCost;
     const formalizationTotal = Number((formalizerCount * costPerPerson).toFixed(2));
     const otherExpenses = dto.otherExpensesAmount ? Number(dto.otherExpensesAmount) : 0;
     const netSale = Number((grossSale - fourPerThousand - formalizationTotal - otherExpenses).toFixed(2));
@@ -460,7 +470,7 @@ export class BatchesService {
 
     const items = availablePurchases.map((p) => ({
       id: p.id,
-      consecutive: p.consecutive || 'DH-?',
+      consecutive: p.consecutive || 'S/N',
       supplier: p.supplier || 'Barequero',
       grossGrams: Number(p.grossGrams),
       fineGrams: Number(p.fineGrams),

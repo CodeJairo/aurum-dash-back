@@ -211,7 +211,7 @@ export class ArchiveService {
           companyId,
           name: purchase.supplier || 'Barequero',
           document: purchase.vendorDoc?.trim() || `GEN-${Date.now()}`,
-          address: purchase.vendorAddress || 'Chocó, Colombia',
+          address: purchase.vendorAddress || '',
         },
       });
       targetFormalizerId = created.id;

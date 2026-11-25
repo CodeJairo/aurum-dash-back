@@ -16,7 +16,7 @@ export class CreateFormalizerDto {
 
   @IsOptional()
   @IsString()
-  city?: string = 'Quibdó-Chocó';
+  city?: string; // Si no se envía, se usa la ciudad configurada de la empresa
 
   @IsOptional()
   @IsString()

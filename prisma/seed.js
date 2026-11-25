@@ -98,10 +98,11 @@ async function seedAtlasCapital() {
   });
 
   const siigoConfig = {
-    siigoActive: existingSetting?.siigoActive ?? true,
+    // Credenciales de Siigo: nunca en el código; se leen de variables de entorno locales (opcionales)
+    siigoActive: existingSetting?.siigoActive ?? Boolean(process.env.SEED_SIIGO_ACCESS_KEY),
     siigoApiUrl: existingSetting?.siigoApiUrl || 'https://api.siigo.com',
-    siigoUsername: existingSetting?.siigoUsername || 'atlascapital.col@gmail.com',
-    siigoAccessKey: existingSetting?.siigoAccessKey || 'OTczNDNmMGMtN2I4YS00NWVlLWE4MDEtYzliYzkxNzI2MjJmOmM0WGNjfnE1eEM=',
+    siigoUsername: existingSetting?.siigoUsername || process.env.SEED_SIIGO_USERNAME || null,
+    siigoAccessKey: existingSetting?.siigoAccessKey || process.env.SEED_SIIGO_ACCESS_KEY || null,
     siigoPartnerId: existingSetting?.siigoPartnerId || 'AtlasCapital',
     siigoDebitAccount: existingSetting?.siigoDebitAccount || '13309595',
     siigoCreditAccount: existingSetting?.siigoCreditAccount || '11050501',

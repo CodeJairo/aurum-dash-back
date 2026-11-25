@@ -92,6 +92,9 @@ model Company {
   address            String?
   city               String?
   isActive           Boolean      @default(true)
+  // Marca por empresa (logo almacenado en S3/MinIO)
+  logoKey            String?
+  logoUrl            String?
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
 
@@ -293,13 +296,16 @@ model SystemSetting {
   id                  String   @id @default(uuid())
   companyId           String   @unique
   company             Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  legalName           String   @default("DANIEL CAMILO HERRERA RENTERIA")
-  document            String   @default("1.078.000.069")
-  address             String   @default("CR 8 CL 30 8 07")
+  legalName           String   @default("")
+  document            String   @default("")
+  address             String   @default("")
   phone               String?  @default("")
-  city                String?  @default("Quibdó")
+  city                String?  @default("")
+  // Departamento por defecto (formularios de vinculación). El default "Chocó" solo
+  // aplica a filas existentes al agregar la columna; empresas nuevas lo definen al crearse.
+  department          String?  @default("Chocó")
   country             String?  @default("Colombia")
-  consecutivePrefix   String   @default("DH-")
+  consecutivePrefix   String   @default("CP-")
   lastConsecutiveNum  Int      @default(0)
   lastPurchaseNum     Int      @default(0)
   currentCapital      Decimal  @default(0.00) @db.Decimal(14, 2)
@@ -311,17 +317,24 @@ model SystemSetting {
   siigoApiUrl         String?  @default("https://api.siigo.com")
   siigoUsername       String?
   siigoAccessKey      String?
-  siigoPartnerId      String?  @default("AtlasCapital")
+  siigoPartnerId      String?  @default("AurumDash")
   siigoDebitAccount   String?  @default("13309595")
   siigoCreditAccount  String?  @default("11050501")
   siigoRpDocumentId   Int?     @default(31163)
   siigoCashPaymentId  Int?     @default(4375)
+  // Códigos DANE de ubicación para crear terceros en Siigo (por defecto Chocó / Quibdó)
+  siigoStateCode      String?  @default("27")
+  siigoCityCode       String?  @default("27001")
 
   // Lista de Documentos Obligatorios para Barequeros (Checklist en Archivo)
   requiredDocuments   Json?
 
   // Tope Máximo Legal/Operativo por Compra a Barequero (Gramos Brutos)
   barequeroMaxGrams   Decimal  @default(70.90) @db.Decimal(8, 2)
+
+  // Reglas de negocio de la venta de lotes (configurables por empresa)
+  fourPerThousandRate      Decimal  @default(0.004) @db.Decimal(6, 5)
+  defaultFormalizationCost Decimal  @default(170000.00) @db.Decimal(14, 2)
 
   updatedAt           DateTime @updatedAt
 
@@ -336,7 +349,7 @@ model Formalizer {
   document      String
   address       String
   phone         String?
-  city          String           @default("Quibdó-Chocó")
+  city          String           @default("")
   country       String           @default("Colombia")
   status        FormalizerStatus @default(AVAILABLE)
 
@@ -349,7 +362,7 @@ model Formalizer {
   docIssueDate       DateTime?
   docIssuePlace      String?
   miningMunicipality String?
-  miningDepartment   String?          @default("Chocó")
+  miningDepartment   String?         
   email              String?
   ciiuCode           String?          @default("0722")
   declaresRent       Boolean?         @default(false)

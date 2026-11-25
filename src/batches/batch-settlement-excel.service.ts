@@ -1,8 +1,8 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as ExcelJS from 'exceljs';
-import * as path from 'path';
-import * as fs from 'fs';
+import { StorageService } from '../storage/storage.service';
+import { loadCompanyLogo } from '../common/helpers/company-logo.helper';
 
 interface PurchaseItem {
   id: string;
@@ -24,7 +24,10 @@ interface PurchaseItem {
 export class BatchSettlementExcelService {
   private readonly logger = new Logger(BatchSettlementExcelService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly storageService: StorageService,
+  ) {}
 
   /**
    * Genera el libro Excel de Liquidación de Consecutivos (Actas a Barequeros)
@@ -50,9 +53,9 @@ export class BatchSettlementExcelService {
 
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
-      select: { name: true, nit: true },
+      select: { name: true, nit: true, slug: true },
     });
-    const companyName = company?.name || 'ATLAS CAPITAL';
+    const companyName = company?.name || 'Compraventa';
 
     let selectedPurchases: PurchaseItem[] = [];
     let unselectedPurchases: PurchaseItem[] = [];
@@ -107,19 +110,18 @@ export class BatchSettlementExcelService {
     workbook.creator = companyName;
     workbook.created = new Date();
 
-    // Intentar cargar el logo corporativo
+    // Logo de la empresa (si tiene uno configurado); si no, el Excel se genera sin logo
     let logoImageId: number | null = null;
-    const logoPath = this.getLogoPath();
-    if (logoPath && fs.existsSync(logoPath)) {
-      try {
-        const imageBuffer = fs.readFileSync(logoPath);
+    try {
+      const logo = await loadCompanyLogo(this.prisma, this.storageService, companyId);
+      if (logo) {
         logoImageId = workbook.addImage({
-          base64: imageBuffer.toString('base64'),
-          extension: 'png',
+          base64: logo.buffer.toString('base64'),
+          extension: logo.extension,
         });
-      } catch (err) {
-        this.logger.warn(`No se pudo cargar el logo para el Excel: ${err}`);
       }
+    } catch (err) {
+      this.logger.warn(`No se pudo cargar el logo para el Excel: ${String(err)}`);
     }
 
     // Hoja 1: Seleccionados
@@ -163,23 +165,17 @@ export class BatchSettlementExcelService {
     const uint8Array = await workbook.xlsx.writeBuffer();
     const buffer = Buffer.from(uint8Array);
     const safeCode = (batch.code || batchId).replace(/[^a-zA-Z0-9-_]/g, '_');
-    const filename = `Atlas_Capital_Liquidacion_Consecutivos_${safeCode}.xlsx`;
+    const filename = BatchSettlementExcelService.buildFilename(company?.slug, safeCode);
 
     return { buffer, filename };
   }
 
-  private getLogoPath(): string | null {
-    const candidates = [
-      path.resolve(process.cwd(), 'templates/logo.png'),
-      path.resolve(process.cwd(), 'back/templates/logo.png'),
-      path.resolve(__dirname, '../../templates/logo.png'),
-      path.resolve(process.cwd(), '../front/src/assets/logo.png'),
-      path.resolve(process.cwd(), 'front/src/assets/logo.png'),
-    ];
-    for (const c of candidates) {
-      if (fs.existsSync(c)) return c;
-    }
-    return null;
+  /** Nombre del archivo: Liquidacion_Consecutivos_<empresa>_<lote>.xlsx */
+  static buildFilename(companySlug: string | null | undefined, safeBatchCode: string): string {
+    const safeSlug = (companySlug || '').replace(/[^a-zA-Z0-9-_]/g, '_');
+    return safeSlug
+      ? `Liquidacion_Consecutivos_${safeSlug}_${safeBatchCode}.xlsx`
+      : `Liquidacion_Consecutivos_${safeBatchCode}.xlsx`;
   }
 
   private buildWorksheet(params: {
@@ -371,7 +367,7 @@ export class BatchSettlementExcelService {
 
       // Col B: Consecutivo
       const cB = row.getCell(2);
-      cB.value = p.consecutive || `DH-${idx + 1}`;
+      cB.value = p.consecutive || `S/N-${idx + 1}`;
       cB.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF0F172A' } };
       cB.alignment = { vertical: 'middle', horizontal: 'center' };
 

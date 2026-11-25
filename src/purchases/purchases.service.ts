@@ -13,6 +13,7 @@ import { CapitalMovementType, MaterialType, PaymentAccount, PaymentStatus, Prism
 import * as ExcelJS from 'exceljs';
 import * as path from 'path';
 import * as fs from 'fs';
+import { loadCompanyLogo, replaceTemplateLogo } from '../common/helpers/company-logo.helper';
 
 @Injectable()
 export class PurchasesService {
@@ -129,9 +130,9 @@ export class PurchasesService {
           where: { companyId },
         });
 
-        const recipientName = dto.recipientName || settings?.legalName || 'DANIEL CAMILO HERRERA RENTERIA';
-        const recipientDoc = dto.recipientDoc || settings?.document || '1.078.000.069';
-        const recipientAddress = dto.recipientAddress || settings?.address || 'CR 8 CL 30 8 07';
+        const recipientName = dto.recipientName || settings?.legalName || '';
+        const recipientDoc = dto.recipientDoc || settings?.document || '';
+        const recipientAddress = dto.recipientAddress || settings?.address || '';
 
         if (!dto.vendorPhotoUrl || !dto.vendorPhotoUrl.trim()) {
           throw new BadRequestException('La fotografía del barequero es obligatoria para la recepción de material.');
@@ -206,7 +207,7 @@ export class PurchasesService {
               document: dto.vendorDoc,
               address: dto.vendorAddress || '',
               phone: dto.vendorPhone || '',
-              city: dto.vendorCity || 'Quibdó-Chocó',
+              city: dto.vendorCity || settings?.city || '',
               country: dto.vendorCountry || 'Colombia',
             },
             tx,
@@ -805,6 +806,8 @@ export class PurchasesService {
 
   async generateReceiptExcel(companyId: string, id: string): Promise<{ buffer: Buffer; filename: string }> {
     const purchase = await this.findOne(companyId, id);
+    const companySettings = await this.prisma.systemSetting.findUnique({ where: { companyId } });
+    const companyCity = companySettings?.city || '';
 
     const isAccounting = purchase.type === 'ACCOUNTING';
     const templateName = isAccounting ? 'compra.xlsx' : 'recepcion_material.xlsx';
@@ -864,6 +867,9 @@ export class PurchasesService {
       // NOMBRE DEL CLIENTE: C9
       worksheet.getCell('C9').value = purchase.supplier || '';
 
+      // CIUDAD: C10 (la plantilla trae una ciudad fija; se reemplaza por la de la compra o la empresa)
+      worksheet.getCell('C10').value = purchase.vendorCity || companyCity;
+
       // GR FINOS: E15
       worksheet.getCell('E15').value = fineNum;
       worksheet.getCell('E15').numFmt = '0.00##';
@@ -906,23 +912,26 @@ export class PurchasesService {
       throw new NotFoundException('No se encontró una hoja válida en la plantilla de Excel.');
     }
 
+    // Logo: la plantilla trae un logo embebido; se reemplaza por el logo de la empresa (o se deja sin logo)
+    await this.applyCompanyLogoToTemplate(workbook, worksheet, companyId);
+
     // Consecutivo: G7
-    worksheet.getCell('G7').value = purchase.consecutive || 'DH-1';
+    worksheet.getCell('G7').value = purchase.consecutive || '';
 
     // Fecha de entrega: G6 en formato dd/mm/aaaa
     worksheet.getCell('G6').value = formattedDate;
 
     // Partícipe Receptor: C8, C9, C10
-    worksheet.getCell('C8').value = purchase.recipientName || 'DANIEL CAMILO HERRERA RENTERIA';
-    worksheet.getCell('C9').value = purchase.recipientDoc || '1.078.000.069';
-    worksheet.getCell('C10').value = purchase.recipientAddress || 'CR 8 CL 30 8 07';
+    worksheet.getCell('C8').value = purchase.recipientName || companySettings?.legalName || '';
+    worksheet.getCell('C9').value = purchase.recipientDoc || companySettings?.document || '';
+    worksheet.getCell('C10').value = purchase.recipientAddress || companySettings?.address || '';
 
     // Partícipe Barequero:
     worksheet.getCell('C14').value = purchase.supplier || '';
     worksheet.getCell('C15').value = purchase.vendorDoc || '';
     worksheet.getCell('C16').value = purchase.vendorAddress || '';
     worksheet.getCell('C17').value = purchase.vendorPhone || '';
-    worksheet.getCell('C18').value = purchase.vendorCity || 'Quibdó-Chocó';
+    worksheet.getCell('C18').value = purchase.vendorCity || companyCity;
     worksheet.getCell('C19').value = purchase.vendorCountry || 'Colombia';
 
     // Datos del Metal:
@@ -950,10 +959,20 @@ export class PurchasesService {
 
     const rawBuffer = await workbook.xlsx.writeBuffer();
     const buffer = Buffer.from(rawBuffer);
-    const safeConsecutive = (purchase.consecutive || 'DH-1').replace(/[\/\s\\:]+/g, '-');
+    const safeConsecutive = (purchase.consecutive || 'SN').replace(/[\/\s\\:]+/g, '-');
     const filename = `Liquidacion_Compra_${safeConsecutive}_${y}-${m}-${d}.xlsx`;
 
     return { buffer, filename };
+  }
+
+  /** Reemplaza el logo embebido de la plantilla por el de la empresa (o lo quita si no tiene). */
+  private async applyCompanyLogoToTemplate(
+    workbook: ExcelJS.Workbook,
+    worksheet: ExcelJS.Worksheet,
+    companyId: string,
+  ): Promise<void> {
+    const logo = await loadCompanyLogo(this.prisma, this.storageService, companyId);
+    replaceTemplateLogo(workbook, worksheet, logo);
   }
 
   async remove(companyId: string, id: string) {
