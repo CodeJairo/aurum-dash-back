@@ -111,6 +111,38 @@ export class ArchiveController {
     );
   }
 
+  /**
+   * Ver / descargar un documento individual del archivo.
+   * Autenticado y filtrado por empresa; lee el archivo por `fileKey`, así funciona
+   * con cualquier formato histórico de `fileUrl` (relativo, absoluto o local).
+   */
+  @Get('documents/:documentId/download')
+  async downloadDocument(
+    @CurrentCompanyId() companyId: string,
+    @Param('documentId') documentId: string,
+    @Res() res: Response,
+  ) {
+    const { stream, mimeType, length, filename } =
+      await this.archiveService.getDocumentForDownload(companyId, documentId);
+
+    res.setHeader('Content-Type', mimeType);
+    if (length) {
+      res.setHeader('Content-Length', length);
+    }
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    );
+    stream.on('error', () => {
+      if (!res.headersSent) {
+        res.status(404).json({ message: 'Archivo no encontrado.' });
+      } else {
+        res.end();
+      }
+    });
+    stream.pipe(res);
+  }
+
   @Public()
   @Get('documents/file')
   async getDocumentFile(

@@ -500,9 +500,9 @@ export class FormalizersService {
     return createdDoc;
   }
 
-  async getDocumentById(docId: string) {
-    return this.prisma.barequeroDocument.findUnique({
-      where: { id: docId },
+  async getDocumentById(companyId: string, docId: string) {
+    return this.prisma.barequeroDocument.findFirst({
+      where: { id: docId, companyId },
     });
   }
 

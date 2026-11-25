@@ -85,8 +85,12 @@ export class FormalizersController {
   }
 
   @Get('documents/:docId/download')
-  async downloadDocument(@Param('docId') docId: string, @Res() res: Response) {
-    const doc = await this.formalizersService.getDocumentById(docId);
+  async downloadDocument(
+    @CurrentCompanyId() companyId: string,
+    @Param('docId') docId: string,
+    @Res() res: Response,
+  ) {
+    const doc = await this.formalizersService.getDocumentById(companyId, docId);
     if (!doc) {
       throw new NotFoundException('Documento no encontrado.');
     }

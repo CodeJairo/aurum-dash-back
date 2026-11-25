@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { SettingsService, DEFAULT_REQUIRED_DOCUMENTS } from '../settings/settings.service';
 import type { Response } from 'express';
+import * as path from 'path';
 
 function getArchiver(): any {
   try {
@@ -249,6 +250,37 @@ export class ArchiveService {
   /**
    * Elimina un documento del archivo
    */
+  /**
+   * Obtiene un documento del archivo (filtrado por empresa) y su stream desde el almacenamiento.
+   * Se usa para ver/descargar un documento individual sin depender del formato de `fileUrl`.
+   */
+  async getDocumentForDownload(companyId: string, documentId: string) {
+    const doc = await this.prisma.barequeroDocument.findFirst({
+      where: { id: documentId, companyId },
+    });
+
+    if (!doc) {
+      throw new NotFoundException('Documento no encontrado.');
+    }
+
+    const file = await this.storageService.getFileStream(doc.fileKey);
+
+    let filename = doc.name || 'documento';
+    const ext = path.extname(doc.fileKey);
+    if (ext && !filename.toLowerCase().endsWith(ext.toLowerCase())) {
+      filename = `${filename}${ext}`;
+    }
+
+    return {
+      ...file,
+      mimeType:
+        file.mimeType && file.mimeType !== 'application/octet-stream'
+          ? file.mimeType
+          : doc.mimeType || 'application/octet-stream',
+      filename,
+    };
+  }
+
   async deleteDocument(companyId: string, documentId: string) {
     const doc = await this.prisma.barequeroDocument.findFirst({
       where: { id: documentId, companyId },
