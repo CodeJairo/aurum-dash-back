@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { Prisma } from '@prisma/client';
+import { normalizeSettlementPartners, resolveSettlementConfig } from '../monthly-settlements/settlement-config';
 
 export const DEFAULT_REQUIRED_DOCUMENTS = [
   'Cédula de Ciudadanía',
@@ -72,9 +73,25 @@ export class SettingsService {
       }
     }
 
+    // Configuración de liquidación (modo + socios)
+    const settlementData: Prisma.SystemSettingUpdateInput = {};
+    if (dto.settlementMode !== undefined || dto.settlementPartners !== undefined) {
+      const effective = await resolveSettlementConfig(this.prisma, companyId);
+      const mode = dto.settlementMode ?? effective.mode;
+      settlementData.settlementMode = mode;
+      const sentPartners = Array.isArray(dto.settlementPartners) ? dto.settlementPartners : undefined;
+      if (sentPartners && (mode === 'PARTNERS' || sentPartners.length > 0)) {
+        settlementData.settlementPartners = normalizeSettlementPartners(sentPartners) as any;
+      } else if (mode === 'PARTNERS') {
+        // Validar que exista una lista de socios utilizable (guardada o heredada del historial)
+        settlementData.settlementPartners = normalizeSettlementPartners(effective.partners) as any;
+      }
+    }
+
     return this.prisma.systemSetting.update({
       where: { companyId },
       data: {
+        ...settlementData,
         legalName: dto.legalName !== undefined ? dto.legalName : current.legalName,
         document: dto.document !== undefined ? dto.document : current.document,
         address: dto.address !== undefined ? dto.address : current.address,

@@ -24,6 +24,11 @@ export class MonthlySettlementsController {
     private readonly monthlySettlementsService: MonthlySettlementsService,
   ) {}
 
+  @Get('config')
+  getConfig(@CurrentCompanyId() companyId: string) {
+    return this.monthlySettlementsService.getConfig(companyId);
+  }
+
   @Get('preview')
   preview(
     @CurrentCompanyId() companyId: string,

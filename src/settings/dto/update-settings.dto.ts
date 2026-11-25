@@ -1,4 +1,4 @@
-import { IsBoolean, IsInt, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class UpdateSettingsDto {
   @IsOptional()
@@ -101,4 +101,14 @@ export class UpdateSettingsDto {
   @IsNumber({}, { message: 'El costo de formalización debe ser numérico.' })
   @Min(0, { message: 'El costo de formalización no puede ser negativo.' })
   defaultFormalizationCost?: number;
+
+  // Liquidación mensual: sin reparto o con reparto entre socios
+  @IsOptional()
+  @IsIn(['NONE', 'PARTNERS'], { message: 'El modo de liquidación debe ser NONE o PARTNERS.' })
+  settlementMode?: 'NONE' | 'PARTNERS';
+
+  // [{ name, percent }] — se valida en el servicio (nombres, % y suma 100)
+  @IsOptional()
+  @IsArray()
+  settlementPartners?: { name: string; percent: number }[];
 }

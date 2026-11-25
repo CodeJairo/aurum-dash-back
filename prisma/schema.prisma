@@ -336,6 +336,12 @@ model SystemSetting {
   fourPerThousandRate      Decimal  @default(0.004) @db.Decimal(6, 5)
   defaultFormalizationCost Decimal  @default(170000.00) @db.Decimal(14, 2)
 
+  // Liquidación mensual: "NONE" (sin reparto) o "PARTNERS" (reparto entre socios).
+  // null = empresa existente sin configurar: se infiere de su última liquidación.
+  settlementMode           String?
+  // Socios para el reparto: [{ "name": "Socio 1", "percent": 50 }, ...] (suma 100)
+  settlementPartners       Json?
+
   updatedAt           DateTime @updatedAt
 
   @@map("system_settings")
@@ -546,12 +552,17 @@ model MonthlySettlement {
   // Utilidad Neta Real a Distribuir
   netProfit             Decimal                    @default(0.00) @db.Decimal(14, 2)
 
-  // Repartición Socios
-  partner1Name          String                     @default("Daniel")
+  // Modo de distribución usado: "NONE" | "PARTNERS" (null = liquidación histórica con 2 socios)
+  distributionMode      String?
+  // true si la utilidad se retiró del capital de trabajo (reparto o retiro de utilidades)
+  profitWithdrawn       Boolean?
+
+  // Repartición Socios (histórico: 2 socios). Las liquidaciones nuevas usan `shares`.
+  partner1Name          String                     @default("")
   partner1Percent       Decimal                    @default(50.00) @db.Decimal(5, 2)
   partner1Amount        Decimal                    @default(0.00) @db.Decimal(14, 2)
 
-  partner2Name          String                     @default("Andrés")
+  partner2Name          String                     @default("")
   partner2Percent       Decimal                    @default(50.00) @db.Decimal(5, 2)
   partner2Amount        Decimal                    @default(0.00) @db.Decimal(14, 2)
 
@@ -569,12 +580,30 @@ model MonthlySettlement {
   updatedAt             DateTime                   @updatedAt
 
   expenses              MonthlySettlementExpense[]
+  shares                MonthlySettlementShare[]
   registeredExpenses    Expense[]                  @relation("MonthlySettlementPeriodExpenses")
   batches               Batch[]                    @relation("MonthlySettlementBatches")
 
   @@unique([companyId, code])
   @@index([companyId])
   @@map("monthly_settlements")
+}
+
+// Participación de cada socio en una liquidación (N socios)
+model MonthlySettlementShare {
+  id                  String            @id @default(uuid())
+  companyId           String
+  monthlySettlementId String
+  monthlySettlement   MonthlySettlement @relation(fields: [monthlySettlementId], references: [id], onDelete: Cascade)
+  name                String
+  percent             Decimal           @db.Decimal(5, 2)
+  amount              Decimal           @default(0.00) @db.Decimal(14, 2)
+  sortOrder           Int               @default(0)
+  createdAt           DateTime          @default(now())
+
+  @@index([companyId])
+  @@index([monthlySettlementId])
+  @@map("monthly_settlement_shares")
 }
 
 model MonthlySettlementExpense {

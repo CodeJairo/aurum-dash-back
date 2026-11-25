@@ -1,3 +1,4 @@
+import { computeShares, resolveSettlementConfig } from '../monthly-settlements/settlement-config';
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -172,9 +173,18 @@ export class DashboardService {
 
     const totalNetProfit = totalHistoricalSales - totalHistoricalInvestment - totalHistoricalExpenses;
 
-    // Reparto acumulado entre los dos socios administradores
-    const partner1Profit = (totalNetProfit * 50) / 100;
-    const partner2Profit = (totalNetProfit * 50) / 100;
+    // Reparto acumulado según la configuración de liquidación de la empresa
+    const settlementConfig = await resolveSettlementConfig(this.prisma, companyId);
+    const shares =
+      settlementConfig.mode === 'PARTNERS'
+        ? computeShares(totalNetProfit, settlementConfig.partners).map((sh) => ({
+            name: sh.name,
+            percent: sh.percent,
+            profit: sh.amount,
+          }))
+        : [];
+    const p1 = shares[0];
+    const p2 = shares[1];
 
     // 5. Métricas operativas de lotes cerrados y mes actual
     const closedBatches = await this.prisma.batch.findMany({
@@ -352,18 +362,21 @@ export class DashboardService {
         monthlySalesCount: monthlySalesAgg._count.id,
       },
       partnerDistribution: {
-        partner1Name: 'Daniel Herrera',
-        partner1Percent: 50,
-        partner1Profit,
-        partner2Name: 'Andres Herrera',
-        partner2Percent: 50,
-        partner2Profit,
-        clientName: 'Daniel Herrera',
-        clientPercent: 50,
-        clientProfit: partner1Profit,
-        partnerName: 'Andres Herrera',
-        partnerPercent: 50,
-        partnerProfit: partner2Profit,
+        mode: settlementConfig.mode,
+        shares,
+        // Campos históricos (compatibilidad): primeros dos socios si existen
+        partner1Name: p1?.name || '',
+        partner1Percent: p1?.percent || 0,
+        partner1Profit: p1?.profit || 0,
+        partner2Name: p2?.name || '',
+        partner2Percent: p2?.percent || 0,
+        partner2Profit: p2?.profit || 0,
+        clientName: p1?.name || '',
+        clientPercent: p1?.percent || 0,
+        clientProfit: p1?.profit || 0,
+        partnerName: p2?.name || '',
+        partnerPercent: p2?.percent || 0,
+        partnerProfit: p2?.profit || 0,
       },
       openBatches: openBatches.map((b) => ({
         id: b.id,

@@ -1,5 +1,6 @@
 import {
   IsArray,
+  IsBoolean,
   IsDateString,
   IsEnum,
   IsNotEmpty,
@@ -64,6 +65,15 @@ export class CreateMonthlySettlementDto {
   @IsOptional()
   notes?: string;
 
+  /**
+   * Solo aplica a empresas sin reparto entre socios: si es true, la utilidad neta se
+   * registra como retiro del capital de trabajo. Con socios, el reparto siempre se registra.
+   */
+  @IsOptional()
+  @IsBoolean()
+  registerProfitWithdrawal?: boolean;
+
+  // Campos históricos (ignorados): los socios ahora salen de Ajustes > Liquidación.
   @IsString()
   @IsOptional()
   partner1Name?: string;

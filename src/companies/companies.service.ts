@@ -78,6 +78,8 @@ export class CompaniesService {
           phone: dto.phone?.trim() || '',
           city: dto.city?.trim() || '',
           department: '',
+          // Las empresas nuevas liquidan sin reparto entre socios hasta que lo configuren
+          settlementMode: 'NONE',
           consecutivePrefix: dto.consecutivePrefix?.trim() || 'CP-',
           lastConsecutiveNum: 0,
           lastPurchaseNum: 0,

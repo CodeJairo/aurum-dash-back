@@ -7,6 +7,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CapitalService } from '../capital/capital.service';
 import { CreateMonthlySettlementDto } from './dto/create-monthly-settlement.dto';
 import { CapitalMovementType, ExpenseStatus, PaymentAccount, Prisma } from '@prisma/client';
+import { computeShares, resolveSettlementConfig } from './settlement-config';
 
 @Injectable()
 export class MonthlySettlementsService {
@@ -29,6 +30,11 @@ export class MonthlySettlementsService {
     const storeEnd = new Date(`${eClean}T12:00:00.000-05:00`);
 
     return { queryStart, queryEnd, storeStart, storeEnd };
+  }
+
+  /** Configuración de liquidación de la empresa (modo y socios) para la UI. */
+  getConfig(companyId: string) {
+    return resolveSettlementConfig(this.prisma, companyId);
   }
 
   async preview(companyId: string, startDateStr: string, endDateStr: string) {
@@ -238,13 +244,21 @@ export class MonthlySettlementsService {
     // Utilidad Neta Real = Utilidad Comercial de Lotes - Gastos Generales (registrados + manuales)
     const netProfit = Number(Math.max(0, commercialProfit - generalExpensesTotal).toFixed(2));
 
-    const p1Name = dto.partner1Name?.trim() || 'Daniel Herrera';
-    const p1Percent = dto.partner1Percent !== undefined ? Number(dto.partner1Percent) : 50.0;
-    const p1Amount = Number(((netProfit * p1Percent) / 100).toFixed(2));
+    // Distribución según la configuración de la empresa (Ajustes > Liquidación)
+    const config = await resolveSettlementConfig(this.prisma, companyId);
+    const isPartnersMode = config.mode === 'PARTNERS' && config.partners.length > 0;
+    const shares = isPartnersMode ? computeShares(netProfit, config.partners) : [];
 
-    const p2Name = dto.partner2Name?.trim() || 'Andres Herrera';
-    const p2Percent = dto.partner2Percent !== undefined ? Number(dto.partner2Percent) : 50.0;
-    const p2Amount = Number(((netProfit * p2Percent) / 100).toFixed(2));
+    // Con socios la utilidad siempre se reparte (sale del capital de trabajo).
+    // Sin socios solo se retira si el usuario lo indica; si no, queda en el capital.
+    const withdrawProfit = isPartnersMode ? true : dto.registerProfitWithdrawal === true;
+    const payoutLabel = isPartnersMode
+      ? `(${shares.map((sh) => sh.name).join(', ')})`
+      : '(retiro de utilidades)';
+
+    // Columnas históricas partner1/partner2 (compatibilidad con reportes anteriores)
+    const legacyP1 = shares[0];
+    const legacyP2 = shares[1];
 
     const payoutAccount = dto.payoutAccount || PaymentAccount.BANK;
     let payoutCashAmount = dto.payoutCashAmount ? Number(dto.payoutCashAmount) : null;
@@ -306,19 +320,37 @@ export class MonthlySettlementsService {
           commercialProfit: new Prisma.Decimal(commercialProfit.toFixed(2)),
           generalExpensesTotal: new Prisma.Decimal(generalExpensesTotal.toFixed(2)),
           netProfit: new Prisma.Decimal(netProfit.toFixed(2)),
-          partner1Name: p1Name,
-          partner1Percent: new Prisma.Decimal(p1Percent.toFixed(2)),
-          partner1Amount: new Prisma.Decimal(p1Amount.toFixed(2)),
-          partner2Name: p2Name,
-          partner2Percent: new Prisma.Decimal(p2Percent.toFixed(2)),
-          partner2Amount: new Prisma.Decimal(p2Amount.toFixed(2)),
+          distributionMode: isPartnersMode ? 'PARTNERS' : 'NONE',
+          profitWithdrawn: withdrawProfit && netProfit > 0,
+          partner1Name: legacyP1?.name || '',
+          partner1Percent: new Prisma.Decimal((legacyP1?.percent || 0).toFixed(2)),
+          partner1Amount: new Prisma.Decimal((legacyP1?.amount || 0).toFixed(2)),
+          partner2Name: legacyP2?.name || '',
+          partner2Percent: new Prisma.Decimal((legacyP2?.percent || 0).toFixed(2)),
+          partner2Amount: new Prisma.Decimal((legacyP2?.amount || 0).toFixed(2)),
           payoutAccount,
-          payoutCashAmount: payoutCashAmount !== null ? new Prisma.Decimal(payoutCashAmount.toFixed(2)) : null,
-          payoutBankAmount: payoutBankAmount !== null ? new Prisma.Decimal(payoutBankAmount.toFixed(2)) : null,
+          payoutCashAmount:
+            withdrawProfit && payoutCashAmount !== null ? new Prisma.Decimal(payoutCashAmount.toFixed(2)) : null,
+          payoutBankAmount:
+            withdrawProfit && payoutBankAmount !== null ? new Prisma.Decimal(payoutBankAmount.toFixed(2)) : null,
           notes: dto.notes?.trim() || null,
           createdById: validCreatedById,
         },
       });
+
+      // Participación de cada socio
+      if (shares.length > 0) {
+        await tx.monthlySettlementShare.createMany({
+          data: shares.map((sh) => ({
+            companyId,
+            monthlySettlementId: settlement.id,
+            name: sh.name,
+            percent: new Prisma.Decimal(sh.percent.toFixed(2)),
+            amount: new Prisma.Decimal(sh.amount.toFixed(2)),
+            sortOrder: sh.sortOrder,
+          })),
+        });
+      }
 
       // Crear los gastos manuales
       if (manualExpensesList.length > 0) {
@@ -350,15 +382,15 @@ export class MonthlySettlementsService {
         });
       }
 
-      // Descontar la utilidad repartida a socios del capital de trabajo para retornar al capital base
-      if (netProfit > 0) {
+      // Descontar la utilidad repartida/retirada del capital de trabajo para retornar al capital base
+      if (netProfit > 0 && withdrawProfit) {
         if (payoutAccount === PaymentAccount.MIXED) {
           if (payoutCashAmount && payoutCashAmount > 0) {
             await this.capitalService.recordSystemMovement(
               companyId,
               CapitalMovementType.PARTNER_PROFIT_PAYOUT,
               -payoutCashAmount,
-              `Distribución utilidades (Efectivo) liquidación ${code} (${p1Name}, ${p2Name})`,
+              `Distribución utilidades (Efectivo) liquidación ${code} ${payoutLabel}`,
               PaymentAccount.CASH,
               settlement.id,
               tx,
@@ -369,7 +401,7 @@ export class MonthlySettlementsService {
               companyId,
               CapitalMovementType.PARTNER_PROFIT_PAYOUT,
               -payoutBankAmount,
-              `Distribución utilidades (Banco) liquidación ${code} (${p1Name}, ${p2Name})`,
+              `Distribución utilidades (Banco) liquidación ${code} ${payoutLabel}`,
               PaymentAccount.BANK,
               settlement.id,
               tx,
@@ -380,7 +412,7 @@ export class MonthlySettlementsService {
             companyId,
             CapitalMovementType.PARTNER_PROFIT_PAYOUT,
             -netProfit,
-            `Distribución utilidades liquidación ${code} (${p1Name}, ${p2Name})`,
+            `Distribución utilidades liquidación ${code} ${payoutLabel}`,
             payoutAccount,
             settlement.id,
             tx,
@@ -391,6 +423,7 @@ export class MonthlySettlementsService {
       return tx.monthlySettlement.findUnique({
         where: { id: settlement.id },
         include: {
+          shares: { orderBy: { sortOrder: 'asc' } },
           expenses: true,
           registeredExpenses: true,
           batches: {
@@ -418,6 +451,7 @@ export class MonthlySettlementsService {
       where: { companyId },
       orderBy: { settlementDate: 'desc' },
       include: {
+        shares: { orderBy: { sortOrder: 'asc' } },
         expenses: true,
         registeredExpenses: true,
         _count: {
@@ -431,6 +465,7 @@ export class MonthlySettlementsService {
     const settlement = await this.prisma.monthlySettlement.findFirst({
       where: { id, companyId },
       include: {
+        shares: { orderBy: { sortOrder: 'asc' } },
         expenses: { orderBy: { createdAt: 'asc' } },
         registeredExpenses: { orderBy: { expenseDate: 'asc' } },
         batches: {
@@ -466,10 +501,12 @@ export class MonthlySettlementsService {
     const settlement = await this.findOne(companyId, id);
     const netProfit = Number(settlement.netProfit || 0);
     const payoutAccount = settlement.payoutAccount;
+    // Las liquidaciones históricas (profitWithdrawn = null) siempre retiraron la utilidad del capital
+    const wasWithdrawn = settlement.profitWithdrawn !== false;
 
     return this.prisma.$transaction(async (tx) => {
       // 1. Si se repartieron utilidades, devolverlas al capital para que vuelvan a quedar en la bolsa retenida
-      if (netProfit > 0) {
+      if (netProfit > 0 && wasWithdrawn) {
         if (payoutAccount === PaymentAccount.MIXED) {
           const cashVal = Number(settlement.payoutCashAmount || 0);
           const bankVal = Number(settlement.payoutBankAmount || 0);
